@@ -8,6 +8,8 @@ class QLineEdit;
 class QPlainTextEdit;
 class QProgressBar;
 class QPushButton;
+class QFrame;
+class QSplitter;
 class QTableWidget;
 class QTextBrowser;
 
@@ -19,7 +21,7 @@ class AnalysisWorkspaceWidget final : public QWidget {
 public:
     explicit AnalysisWorkspaceWidget(QWidget* parent = nullptr);
 
-    void reset(const QString& project);
+    void reset(const QString& project, bool sourceScan = false);
     void updateProgress(
         const QString& stage,
         const QString& target,
@@ -38,18 +40,28 @@ signals:
 private:
     void showTargetDetails(int row);
     void applyFilter(const QString& text);
+    void setDetailFocus(bool focused);
 
     QLabel* projectLabel_{nullptr};
     QLabel* statusLabel_{nullptr};
     QLabel* summaryLabel_{nullptr};
+    QLabel* progressTitle_{nullptr};
+    QLabel* resultsTitle_{nullptr};
     QProgressBar* progress_{nullptr};
     QPushButton* cancelButton_{nullptr};
     QPushButton* exportButton_{nullptr};
+    QPushButton* focusDetailsButton_{nullptr};
     QLineEdit* filterEdit_{nullptr};
+    QFrame* targetsPane_{nullptr};
+    QFrame* logCard_{nullptr};
+    QSplitter* horizontalSplitter_{nullptr};
+    QSplitter* detailSplitter_{nullptr};
     QTableWidget* targetsTable_{nullptr};
     QTextBrowser* details_{nullptr};
     QPlainTextEdit* cmake_{nullptr};
     QPlainTextEdit* logs_{nullptr};
+    bool sourceScan_{false};
+    bool detailFocused_{false};
 };
 
 }  // namespace doctor::ui

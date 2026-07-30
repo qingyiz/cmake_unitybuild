@@ -20,6 +20,8 @@
 | FACT-006 | 用户提供原生界面截图并明确要求美化；当前页面控件过度横向拉伸、主操作和分组层级不足。 | 用户明确/已观察 | 2026-07-29 用户截图 | 设置页与工作台需要一致的视觉系统和更清晰的信息层级 |
 | FACT-007 | 用户要求使用 `CMakePresets.json` 设置，并支持 Qt 5/Qt 6。 | 用户明确 | 2026-07-30 用户反馈 | 构建入口、缓存路径、测试矩阵和源码 API 必须双版本兼容 |
 | FACT-008 | 当前开发包与部署包的 `CFBundleIconFile` 为空，Resources 中没有 `.icns`；用户要求应用显示图标。 | 用户明确/已验证 | 2026-07-30 用户反馈、`plutil`、bundle tree | macOS bundle 必须新增自有图标资源并验证 Finder/Dock 使用的 bundle 元数据 |
+| FACT-009 | 用户要求增加无需 configure/build 的源码扫描模式，首批检查文件级宏定义、文件作用域 `using namespace` 与文件作用域同名 `static`。 | 用户明确 | 2026-07-30 用户反馈 | 必须新增与构建验证并列的只读分析模式，并明确静态风险不等于已确认编译错误 |
+| FACT-010 | 用户在 1920×1280 工作台截图中指出问题详情可见区域太小，不方便阅读多条风险和 CMake 建议。 | 用户明确/已观察 | 2026-07-30 用户截图 | 工作台必须允许扩大详情区域，且不能只能依靠固定左右/上下比例 |
 
 ## 问题与目标
 
@@ -36,15 +38,15 @@
 
 ### 范围
 
-- 范围内：应用自身使用 Qt 5.15/Qt 6.4 构建、CMake C/C++ 项目、Qt 5/6/无 Qt 目标项目、全 target 分析、GUI、导出。
+- 范围内：应用自身使用 Qt 5.15/Qt 6.4 构建、CMake C/C++ 项目的构建验证、任意目录内 C/C++ 源文件的只读快速扫描、Qt 5/6/无 Qt 目标项目、全 target 分析、GUI、导出。
 - 范围外：直接分析仅 qmake 工程、自动修改源码/CMake、云上传、IDE 插件、签名/公证。
 
 ## 用户旅程
 
 1. 打开 `.app`，选择或拖入项目目录。
-2. 应用检查 CMakeLists、CMake executable、generator、工作目录与参数。
+2. 用户选择“源码快速扫描”或“构建验证”；只有构建验证检查 CMakeLists、CMake executable、generator 与构建参数。
 3. 用户点击“开始分析”，进入工作台。
-4. 应用发现全部 target，逐 target 展示 baseline/Unity/探针阶段。
+4. 源码模式逐项展示静态风险；构建模式发现全部 target 并展示 baseline/Unity/探针阶段。
 5. 用户可筛选失败 target/问题类别，查看最小冲突集合、证据和日志。
 6. 用户复制建议或导出报告，手工修改项目。
 7. 用户返回应用重新分析全部或选中 target，确认问题变化。
@@ -146,6 +148,7 @@
 - AC-008.4：10,000 行以上日志不得导致 UI 明显冻结；完整日志仍保存在文件。
 - AC-008.5：应用应跟随系统深浅色，不硬编码低对比度文本。
 - AC-008.6：在 1320×840 参考窗口和 1080×720 最小窗口下，设置页应显示明确的页头、卡片分组和唯一主操作；主要文本不得截断，输入区域不得无边界横向拉伸。
+- AC-008.7：工作台的问题详情与 CMake 建议区域应支持拖动调整上下比例，并提供可逆的“专注详情”操作；进入专注状态后应隐藏结果列表和实时日志，让详情占据主要内容区域，退出后恢复列表、日志和可调整分栏。
 
 ### REQ-009：macOS 原生交付
 
@@ -161,6 +164,21 @@
 - AC-009.6：Qt 5.15.2 与 Qt 6.4.3 presets 应从相同源码分别生成 `.app` 并通过同一组 CTest；配置时应拒绝与 preset 请求主版本不一致的 Qt。
 - AC-009.7：Qt 5/Qt 6 开发 `.app` 与 `dist/UnityBuildDoctor.app` 的 `Info.plist` 应声明非空 `CFBundleIconFile`，且对应 `.icns` 应位于 `Contents/Resources` 并包含 16–1024 px 的 macOS 图标表示。
 
+### REQ-010：无需构建的源码快速扫描
+
+**用户故事：** 作为尚未准备好 CMake 工具链的开发者，我希望只选择源码目录就得到 Unity Build 风险清单。
+
+#### 验收标准
+
+- AC-010.1：设置页应允许在“源码快速扫描”和“构建验证”之间选择，且默认保持现有构建验证行为。
+- AC-010.2：在源码快速扫描模式下，只要项目目录可读并包含受支持的 C/C++ 源文件，系统就不得要求 `CMakeLists.txt`、CMake executable、generator 或成功构建。
+- AC-010.3：源码扫描应递归读取 `.c/.cc/.cpp/.cxx/.m/.mm`，跳过符号链接、隐藏版本控制目录、常见 build/output 目录及大于 2 MiB 的单文件，并在后台线程中支持取消。
+- AC-010.4：宏规则应报告源文件结束时仍有效的 `#define`，并对不同文件中同名但替换内容不同的活动宏给出更高风险；已由 `#undef` 清理的宏不得报告。
+- AC-010.5：`using namespace` 规则应只报告源文件/全局作用域声明；函数体、类体、注释和字符串中的文本不得报告。
+- AC-010.6：`static` 规则应报告不同源文件中同名的文件作用域静态函数或变量；函数局部 static、类静态成员、注释和字符串不得报告。
+- AC-010.7：每个发现应包含稳定规则编号、风险等级、置信度、文件与行号、证据和只读修复建议；界面、session 与导出报告应明确标记 `source-scan`，不得把静态候选写成已确认 Unity 编译失败。
+- AC-010.8：源码快速扫描不得启动 CMake、编译器或其他外部构建进程，也不得修改被扫描目录的内容、权限或时间戳。
+
 ## 非功能需求
 
 | ID | 类别 | 可测约束 | 测量 |
@@ -172,6 +190,7 @@
 | NFR-005 | 容量 | 500 targets、10,000 issues 的 model 操作不复制源码全文 | model benchmark |
 | NFR-006 | 可部署 | deployed `.app` 无开发机 Qt 绝对依赖且包含 cocoa plugin | delivery check |
 | NFR-007 | 构建兼容 | Qt 5.15 与 Qt 6.4 共用源码和 target 图，不使用版本分支复制页面/后端 | dual-preset build + CTest |
+| NFR-008 | 扫描边界 | 源码模式只做进程内只读词法扫描；单文件读取上限 2 MiB，取消检查至少每文件一次 | source-scan fixtures + fake invalid CMake |
 
 ## 边界、错误与状态转换
 
@@ -183,6 +202,8 @@
 | Unity 失败但探针不重放 | 显示 non-replayable 与原证据 | REQ-005 |
 | 用户取消 | 停止当前进程、不启动新 target、保存 partial session | REQ-003, REQ-007 |
 | 导出失败 | 保留 session，界面显示 I/O 错误 | REQ-006, REQ-007 |
+| 源码目录无受支持文件 | 设置页或工作台显示可恢复错误，不启动构建工具 | REQ-010 |
+| 扫描命中跨 target 同名符号 | 标记为项目级候选并说明需要构建验证，不声称必然冲突 | REQ-005, REQ-010 |
 
 ## 需求分析记录
 
@@ -194,6 +215,9 @@
 | ANA-004 | 安全 | REQ-006,007 | 自动 apply 风险高 | 只复制/导出 |
 | ANA-005 | 性能 | REQ-002,003 | 全 target 双构建昂贵 | 过滤、缓存、取消、清晰进度 |
 | ANA-006 | 体验 | REQ-008 | 原生默认 Widgets 样式在大窗口中层级弱且行长过大 | 使用由系统 Palette 派生的主题 token、受控内容宽度、卡片和主次按钮层级 |
+| ANA-007 | 误报 | REQ-010 | 无 configure 时不能可靠知道 target/Unity group，跨文件同名可能属于不同 target | 结果标记为项目级风险候选，保留置信度并建议使用构建模式验证 |
+| ANA-008 | 范围 | REQ-010 | 完整 C++ AST 在没有编译参数时不可靠，首版规则只要求三类明确词法模式 | 使用注释/字符串感知和作用域深度的轻量扫描，不宣称语义完备 |
+| ANA-009 | 体验 | REQ-008 | 固定左右分栏与固定高度 CMake 建议会同时压缩多问题详情和代码建议 | 使用水平/垂直 splitter，并提供一键可逆的详情专注状态 |
 
 ## 需求追踪
 
@@ -206,8 +230,9 @@
 | REQ-005 | AC-005.1–005.5 | domain + issue detail tests |
 | REQ-006 | AC-006.1–006.5 | clipboard/export tests |
 | REQ-007 | AC-007.1–007.5 | snapshot/session/cache tests |
-| REQ-008 | AC-008.1–008.6 | offscreen UI/model tests + macOS 原生截图 |
+| REQ-008 | AC-008.1–008.7 | offscreen UI/model tests + macOS 原生截图 |
 | REQ-009 | AC-009.1–009.7 | dual-preset build/CTest + `.app` icon/delivery/smoke |
+| REQ-010 | AC-010.1–010.8 | domain fixtures + source directory integration + offscreen UI |
 
 ## 未决问题
 

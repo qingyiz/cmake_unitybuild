@@ -5,23 +5,50 @@
 #include <QPlainTextEdit>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QSplitter>
 #include <QTableWidget>
 #include <QTextBrowser>
 #include <QTextCursor>
 
 namespace doctor::ui {
 
-void AnalysisWorkspaceWidget::reset(const QString& project) {
+void AnalysisWorkspaceWidget::reset(const QString& project, bool sourceScan) {
+    setDetailFocus(false);
+    detailSplitter_->setSizes({420, 140});
+    sourceScan_ = sourceScan;
     projectLabel_->setText(project);
     statusLabel_->setText(tr("正在分析"));
     progress_->setRange(0, 0);
-    summaryLabel_->setText(tr("正在发现 target…"));
+    progressTitle_->setText(sourceScan_ ? tr("源码扫描进度") : tr("项目分析进度"));
+    resultsTitle_->setText(sourceScan_ ? tr("规则检查结果") : tr("Target 结果"));
+    targetsTable_->setHorizontalHeaderLabels(
+        sourceScan_
+            ? QStringList{tr("检查项"), tr("类型"), tr("状态"), tr("风险")}
+            : QStringList{tr("Target"), tr("类型"), tr("状态"), tr("问题")});
+    summaryLabel_->setText(
+        sourceScan_ ? tr("正在读取源码并匹配规则…") : tr("正在发现 target…"));
     cancelButton_->setEnabled(true);
     exportButton_->setEnabled(false);
     targetsTable_->setRowCount(0);
-    details_->setHtml(tr("<h3>等待分析结果</h3><p>选择 target 查看问题详情。</p>"));
+    details_->setHtml(
+        sourceScan_
+            ? tr("<h3>等待扫描结果</h3><p>选择检查项查看风险详情。</p>")
+            : tr("<h3>等待分析结果</h3><p>选择 target 查看问题详情。</p>"));
     cmake_->clear();
     logs_->clear();
+}
+
+void AnalysisWorkspaceWidget::setDetailFocus(bool focused) {
+    detailFocused_ = focused;
+    targetsPane_->setVisible(!focused);
+    logCard_->setVisible(!focused);
+    focusDetailsButton_->setText(
+        focused ? tr("退出专注") : tr("专注详情"));
+    focusDetailsButton_->setAccessibleName(
+        focused ? tr("恢复结果列表和实时日志") : tr("展开问题详情区域"));
+    if (!focused) {
+        horizontalSplitter_->setSizes({460, 660});
+    }
 }
 
 void AnalysisWorkspaceWidget::updateProgress(
@@ -67,6 +94,7 @@ void AnalysisWorkspaceWidget::setFinished(bool cancelled) {
     int passed = 0;
     int baselineFailed = 0;
     int unityFailed = 0;
+    int riskChecks = 0;
     int issues = 0;
     for (int row = 0; row < targetsTable_->rowCount(); ++row) {
         const auto status = targetsTable_->item(row, 2)->text();
@@ -77,10 +105,16 @@ void AnalysisWorkspaceWidget::setFinished(bool cancelled) {
             (status == QStringLiteral("Unity Failed") ||
              status == QStringLiteral("Non Replayable"))
             ? 1 : 0;
+        riskChecks += status == QStringLiteral("Risk Found") ? 1 : 0;
         issues += issueCount;
     }
-    summaryLabel_->setText(
-        tr("共 %1 个 target · 通过 %2 · 普通失败 %3 · Unity 问题 %4 · 问题 %5")
+    summaryLabel_->setText(sourceScan_
+        ? tr("共 %1 个检查项 · 通过 %2 · 存在风险 %3 · 风险条目 %4")
+            .arg(targetsTable_->rowCount())
+            .arg(passed)
+            .arg(riskChecks)
+            .arg(issues)
+        : tr("共 %1 个 target · 通过 %2 · 普通失败 %3 · Unity 问题 %4 · 问题 %5")
             .arg(targetsTable_->rowCount())
             .arg(passed)
             .arg(baselineFailed)
@@ -97,30 +131,47 @@ void AnalysisWorkspaceWidget::showTargetDetails(int row) {
              target.value("stage").toString().toHtmlEscaped());
     cmake_->clear();
     if (issues.isEmpty()) {
-        html += tr("<p>没有发现 Unity Build 问题。</p>");
+        html += sourceScan_
+            ? tr("<p>静态扫描未发现这一类常见 Unity Build 风险。</p>")
+            : tr("<p>没有发现 Unity Build 问题。</p>");
     } else {
-        const auto issue = issues.first().toMap();
-        QStringList escapedSources;
-        for (const auto& source : issue.value("sources").toStringList()) {
-            escapedSources.push_back(source.toHtmlEscaped());
+        QStringList snippets;
+        for (const auto& issueValue : issues) {
+            const auto issue = issueValue.toMap();
+            QStringList escapedSources;
+            for (const auto& source : issue.value("sources").toStringList()) {
+                escapedSources.push_back(source.toHtmlEscaped());
+            }
+            QStringList escapedEvidence;
+            for (const auto& evidence : issue.value("evidence").toStringList()) {
+                escapedEvidence.push_back(evidence.toHtmlEscaped());
+            }
+            const auto ruleId = issue.value("ruleId").toString().toHtmlEscaped();
+            const auto ruleMetadata = ruleId.isEmpty()
+                ? QString()
+                : QStringLiteral("<b>规则：</b><code>%1</code> · ").arg(ruleId);
+            html += QStringLiteral(
+                "<hr><h3>%1</h3><p>%2</p>"
+                "<p>%3<b>级别：</b>%4 · "
+                "<b>置信度：</b>%5%</p>"
+                "<p><b>指纹：</b><code>%6</code></p>"
+                "<p><b>涉及文件：</b><br>%7</p>"
+                "<p><b>证据：</b><br>%8</p><p><b>建议：</b>%9</p>")
+                .arg(issue.value("category").toString().toHtmlEscaped(),
+                     issue.value("summary").toString().toHtmlEscaped(),
+                     ruleMetadata,
+                     issue.value("severity").toString().toHtmlEscaped(),
+                     QString::number(
+                         issue.value("confidence").toDouble() * 100.0, 'f', 0),
+                     issue.value("fingerprint").toString().toHtmlEscaped(),
+                     escapedSources.join(QStringLiteral("<br>")),
+                     escapedEvidence.join(QStringLiteral("<br>")),
+                     issue.value("suggestion").toString().toHtmlEscaped());
+            if (!issue.value("cmake").toString().isEmpty()) {
+                snippets.push_back(issue.value("cmake").toString());
+            }
         }
-        QStringList escapedEvidence;
-        for (const auto& evidence : issue.value("evidence").toStringList()) {
-            escapedEvidence.push_back(evidence.toHtmlEscaped());
-        }
-        html += QStringLiteral(
-            "<hr><h3>%1</h3><p>%2</p><p><b>置信度：</b>%3%</p>"
-            "<p><b>失败指纹：</b><code>%4</code></p>"
-            "<p><b>最小冲突文件：</b><br>%5</p>"
-            "<p><b>证据：</b><br>%6</p><p><b>建议：</b>%7</p>")
-            .arg(issue.value("category").toString().toHtmlEscaped(),
-                 issue.value("summary").toString().toHtmlEscaped(),
-                 QString::number(issue.value("confidence").toDouble() * 100.0, 'f', 0),
-                 issue.value("fingerprint").toString().toHtmlEscaped(),
-                 escapedSources.join(QStringLiteral("<br>")),
-                 escapedEvidence.join(QStringLiteral("<br>")),
-                 issue.value("suggestion").toString().toHtmlEscaped());
-        cmake_->setPlainText(issue.value("cmake").toString());
+        cmake_->setPlainText(snippets.join(QStringLiteral("\n\n")));
     }
     details_->setHtml(html);
 }

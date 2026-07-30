@@ -64,11 +64,11 @@ AnalysisWorkspaceWidget::AnalysisWorkspaceWidget(QWidget* parent)
     progressLayout->setContentsMargins(16, 12, 16, 12);
     progressLayout->setSpacing(8);
     auto* progressRow = new QHBoxLayout;
-    auto* progressTitle = new QLabel(tr("项目分析进度"), progressCard);
-    progressTitle->setProperty("role", "cardTitle");
+    progressTitle_ = new QLabel(tr("项目分析进度"), progressCard);
+    progressTitle_->setProperty("role", "cardTitle");
     summaryLabel_ = new QLabel(tr("正在发现 target…"), progressCard);
     summaryLabel_->setProperty("role", "muted");
-    progressRow->addWidget(progressTitle);
+    progressRow->addWidget(progressTitle_);
     progressRow->addStretch();
     progressRow->addWidget(summaryLabel_);
     progress_ = new QProgressBar(progressCard);
@@ -78,28 +78,31 @@ AnalysisWorkspaceWidget::AnalysisWorkspaceWidget(QWidget* parent)
     progressLayout->addWidget(progress_);
     root->addWidget(progressCard);
 
-    auto* horizontal = new QSplitter(Qt::Horizontal, this);
-    horizontal->setChildrenCollapsible(false);
+    horizontalSplitter_ = new QSplitter(Qt::Horizontal, this);
+    horizontalSplitter_->setObjectName(QStringLiteral("workspaceSplitter"));
+    horizontalSplitter_->setChildrenCollapsible(false);
+    horizontalSplitter_->setHandleWidth(10);
 
-    auto* targetsPane = new QFrame(horizontal);
-    targetsPane->setProperty("card", true);
-    auto* targetsLayout = new QVBoxLayout(targetsPane);
+    targetsPane_ = new QFrame(horizontalSplitter_);
+    targetsPane_->setObjectName(QStringLiteral("targetsPane"));
+    targetsPane_->setProperty("card", true);
+    auto* targetsLayout = new QVBoxLayout(targetsPane_);
     targetsLayout->setContentsMargins(14, 14, 14, 14);
     targetsLayout->setSpacing(10);
     auto* targetsHeader = new QHBoxLayout;
-    auto* targetsTitle = new QLabel(tr("Target 结果"), targetsPane);
-    targetsTitle->setProperty("role", "cardTitle");
-    filterEdit_ = new QLineEdit(targetsPane);
+    resultsTitle_ = new QLabel(tr("Target 结果"), targetsPane_);
+    resultsTitle_->setProperty("role", "cardTitle");
+    filterEdit_ = new QLineEdit(targetsPane_);
     filterEdit_->setObjectName(QStringLiteral("resultFilterEdit"));
     filterEdit_->setPlaceholderText(tr("搜索 target、状态或分类…"));
     filterEdit_->setAccessibleName(tr("结果筛选"));
     filterEdit_->setMaximumWidth(320);
-    targetsHeader->addWidget(targetsTitle);
+    targetsHeader->addWidget(resultsTitle_);
     targetsHeader->addStretch();
     targetsHeader->addWidget(filterEdit_);
     targetsLayout->addLayout(targetsHeader);
 
-    targetsTable_ = new QTableWidget(0, 4, targetsPane);
+    targetsTable_ = new QTableWidget(0, 4, targetsPane_);
     targetsTable_->setObjectName(QStringLiteral("targetsTable"));
     targetsTable_->setHorizontalHeaderLabels(
         {tr("Target"), tr("类型"), tr("状态"), tr("问题")});
@@ -115,7 +118,7 @@ AnalysisWorkspaceWidget::AnalysisWorkspaceWidget(QWidget* parent)
     targetsTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     targetsLayout->addWidget(targetsTable_);
 
-    auto* detailPane = new QFrame(horizontal);
+    auto* detailPane = new QFrame(horizontalSplitter_);
     detailPane->setProperty("card", true);
     auto* detailLayout = new QVBoxLayout(detailPane);
     detailLayout->setContentsMargins(14, 14, 14, 14);
@@ -123,47 +126,65 @@ AnalysisWorkspaceWidget::AnalysisWorkspaceWidget(QWidget* parent)
     auto* detailHeader = new QHBoxLayout;
     auto* detailTitle = new QLabel(tr("问题详情"), detailPane);
     detailTitle->setProperty("role", "cardTitle");
+    focusDetailsButton_ = new QPushButton(tr("专注详情"), detailPane);
+    focusDetailsButton_->setObjectName(QStringLiteral("focusDetailsButton"));
+    focusDetailsButton_->setProperty("role", "quiet");
+    focusDetailsButton_->setAccessibleName(tr("展开问题详情区域"));
     auto* copy = new QPushButton(tr("复制 CMake 建议"), detailPane);
     detailHeader->addWidget(detailTitle);
     detailHeader->addStretch();
+    detailHeader->addWidget(focusDetailsButton_);
     detailHeader->addWidget(copy);
     detailLayout->addLayout(detailHeader);
-    details_ = new QTextBrowser(detailPane);
+    detailSplitter_ = new QSplitter(Qt::Vertical, detailPane);
+    detailSplitter_->setObjectName(QStringLiteral("detailContentSplitter"));
+    detailSplitter_->setChildrenCollapsible(false);
+    detailSplitter_->setHandleWidth(10);
+    details_ = new QTextBrowser(detailSplitter_);
     details_->setObjectName(QStringLiteral("issueDetails"));
     details_->setOpenExternalLinks(false);
-    cmake_ = new QPlainTextEdit(detailPane);
+    details_->setMinimumHeight(180);
+    cmake_ = new QPlainTextEdit(detailSplitter_);
     cmake_->setObjectName(QStringLiteral("cmakeSuggestion"));
     cmake_->setReadOnly(true);
     cmake_->setPlaceholderText(tr("选择包含问题的 target 后显示 CMake 建议"));
-    cmake_->setMaximumHeight(150);
-    detailLayout->addWidget(details_, 1);
-    detailLayout->addWidget(cmake_);
-    horizontal->addWidget(targetsPane);
-    horizontal->addWidget(detailPane);
-    horizontal->setSizes({610, 510});
-    root->addWidget(horizontal, 1);
+    cmake_->setMinimumHeight(100);
+    detailSplitter_->addWidget(details_);
+    detailSplitter_->addWidget(cmake_);
+    detailSplitter_->setStretchFactor(0, 4);
+    detailSplitter_->setStretchFactor(1, 1);
+    detailSplitter_->setSizes({420, 140});
+    detailLayout->addWidget(detailSplitter_, 1);
+    horizontalSplitter_->addWidget(targetsPane_);
+    horizontalSplitter_->addWidget(detailPane);
+    horizontalSplitter_->setStretchFactor(0, 2);
+    horizontalSplitter_->setStretchFactor(1, 3);
+    horizontalSplitter_->setSizes({460, 660});
+    root->addWidget(horizontalSplitter_, 1);
 
-    auto* logCard = new QFrame(this);
-    logCard->setProperty("card", true);
-    auto* logLayout = new QVBoxLayout(logCard);
+    logCard_ = new QFrame(this);
+    logCard_->setObjectName(QStringLiteral("logCard"));
+    logCard_->setProperty("card", true);
+    auto* logLayout = new QVBoxLayout(logCard_);
     logLayout->setContentsMargins(14, 12, 14, 14);
     logLayout->setSpacing(8);
     auto* logHeader = new QHBoxLayout;
-    auto* logTitle = new QLabel(tr("实时日志"), logCard);
+    auto* logTitle = new QLabel(tr("实时日志"), logCard_);
     logTitle->setProperty("role", "cardTitle");
-    auto* logHint = new QLabel(tr("显示最近 10,000 行 · 完整日志保存在工作目录"), logCard);
+    auto* logHint = new QLabel(
+        tr("显示最近 10,000 行 · 完整日志保存在工作目录"), logCard_);
     logHint->setProperty("role", "muted");
     logHeader->addWidget(logTitle);
     logHeader->addStretch();
     logHeader->addWidget(logHint);
-    logs_ = new QPlainTextEdit(logCard);
+    logs_ = new QPlainTextEdit(logCard_);
     logs_->setObjectName(QStringLiteral("analysisLogs"));
     logs_->setReadOnly(true);
     logs_->document()->setMaximumBlockCount(10000);
     logs_->setMaximumHeight(140);
     logLayout->addLayout(logHeader);
     logLayout->addWidget(logs_);
-    root->addWidget(logCard);
+    root->addWidget(logCard_);
 
     connect(back, &QPushButton::clicked, this, &AnalysisWorkspaceWidget::backRequested);
     connect(cancelButton_, &QPushButton::clicked,
@@ -174,6 +195,9 @@ AnalysisWorkspaceWidget::AnalysisWorkspaceWidget(QWidget* parent)
             this, &AnalysisWorkspaceWidget::applyFilter);
     connect(targetsTable_, &QTableWidget::cellClicked,
             this, [this](int row, int) { showTargetDetails(row); });
+    connect(focusDetailsButton_, &QPushButton::clicked, this, [this] {
+        setDetailFocus(!detailFocused_);
+    });
     connect(copy, &QPushButton::clicked, this, [this] {
         QApplication::clipboard()->setText(cmake_->toPlainText());
     });

@@ -2,6 +2,7 @@ add_library(doctor_infrastructure STATIC
     src/cmake_backend.cpp
     src/process_runner.cpp
     src/report_exporter.cpp
+    src/source_scan_backend.cpp
 )
 
 target_include_directories(doctor_infrastructure PUBLIC include)

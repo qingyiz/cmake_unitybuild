@@ -1,8 +1,8 @@
 # Unity Build Doctor
 
-Unity Build Doctor 是一个兼容 Qt 5.15 / Qt 6.4+ 的 C++17 桌面工具，用于分析已经迁移到 CMake
-的 C/C++ 项目。它会逐个 target 比较普通构建与 Unity Build，避免被第一个失败
-target 截断，并尝试把 Unity 编译错误缩小到最小冲突源文件集合。
+Unity Build Doctor 是一个兼容 Qt 5.15 / Qt 6.4+ 的 C++17 桌面工具，用于排查
+C/C++ 项目的 Unity Build 风险。它既可以逐个 target 比较普通构建与 Unity Build，
+也可以完全不配置、不构建项目，直接扫描源码中的常见问题。
 
 ## 直接使用
 
@@ -12,14 +12,38 @@ macOS 上双击：
 
 然后在界面中完成以下操作：
 
-1. 点击“浏览…”选择包含顶层 `CMakeLists.txt` 的项目目录，也可以把目录拖入窗口。
+1. 点击“浏览…”选择项目目录，也可以把目录拖入窗口。
 2. 保留自动生成的工作目录。该目录必须位于源码树之外。
-3. 检查 CMake、生成器和配置是否与目标项目一致。
-4. Qt 项目通常需要在“附加参数”中加入一行
+3. 在“分析模式”中选择“构建验证（CMake）”或“源码快速扫描（无需构建）”。
+4. 使用构建验证时，检查 CMake、生成器和配置是否与目标项目一致。Qt 项目通常需要
+   在“附加参数”中加入一行
    `-DCMAKE_PREFIX_PATH=/path/to/Qt/6.x/compiler_kit`。
 5. 点击“开始分析整个项目”。
-6. 在结果表中选择 target，查看分类、最小冲突文件、置信度和 CMake 建议。
+6. 在结果表中选择 target 或检查项，查看规则、涉及文件、证据、置信度和 CMake 建议；
+   可以拖动详情内的分隔条调整正文/建议高度，或点击“专注详情”使用完整主内容区域。
 7. 可复制单条 CMake 建议，或导出 JSON、Markdown、CMake 三种报告。
+
+### 源码快速扫描
+
+该模式不要求项目含有 `CMakeLists.txt`，也不会启动 CMake、编译器或其他构建进程。
+首批规则包括：
+
+- `UBD-MACRO-001`：源文件结束时仍有效的 `#define`；
+- `UBD-MACRO-002`：不同源文件中替换内容不同的活动同名宏；
+- `UBD-USING-001`：文件/全局作用域的 `using namespace`；
+- `UBD-STATIC-001`：不同源文件中的同名文件作用域 `static` 函数或变量。
+
+扫描会递归读取 `.c/.cc/.cpp/.cxx/.m/.mm`，跳过符号链接、版本控制目录、
+常见构建输出目录和超过 2 MiB 的单个文件。结果是静态风险候选，不表示已经确认发生
+Unity 编译失败；需要确认真实 target 分组或编译行为时，请使用“构建验证”模式。
+
+仓库内提供了一个可直接测试的工程：
+
+`examples/unity_risk_demo`
+
+它同时包含三类源码风险，普通构建可以通过，Unity Build 会稳定复现文件级
+`static` 重定义。详细步骤见
+[`examples/unity_risk_demo/README.md`](examples/unity_risk_demo/README.md)。
 
 工作目录内会创建：
 
@@ -28,6 +52,9 @@ macOS 上双击：
 - `probes/`：最小化冲突集合时生成的临时 Unity driver；
 - `analysis.log`：完整的 CMake、编译和探针输出；
 - `session.json`：原子保存的当前分析结果。
+
+源码快速扫描只会创建 `analysis.log` 和 `session.json`，不会创建
+`baseline/`、`unity/` 或 `probes/`。
 
 工具不会修改目标项目中的源码或 `CMakeLists.txt`。生成的 CMake 片段必须由开发者
 审查后手工应用。
@@ -39,6 +66,7 @@ macOS 上双击：
 - `Unity Failed`：普通构建通过而 Unity 构建失败，并已尝试重放及最小化。
 - `Non Replayable`：真实 Unity 构建失败，但独立探针不能稳定复现相同指纹。
 - `Cancelled`：用户取消了分析。
+- `Risk Found`：源码快速扫描发现了符合规则的静态风险候选。
 
 当前分类覆盖文件级 `static`、匿名命名空间、宏泄漏、include 顺序、头文件定义、
 逐文件编译选项、Qt/生成源、单文件问题和未知问题。
