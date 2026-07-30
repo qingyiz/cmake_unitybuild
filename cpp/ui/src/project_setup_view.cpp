@@ -62,8 +62,8 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
     heading->addStretch();
     heading->addWidget(safety, 0, Qt::AlignVCenter);
     auto* subtitle = new QLabel(
-        tr("选择一个 CMake 项目，自动逐 target 对比普通构建与 Unity Build，"
-           "定位最小冲突文件并生成可审查的修复建议。"),
+        tr("可以逐 target 对比普通构建与 Unity Build，也可以不构建项目，"
+           "直接扫描源码中的常见 Unity Build 风险。"),
         content);
     subtitle->setProperty("role", "muted");
     subtitle->setWordWrap(true);
@@ -83,7 +83,7 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
     auto* projectTitle = new QLabel(tr("01  项目与工具链"), projectCard);
     projectTitle->setProperty("role", "cardTitle");
     auto* projectHint = new QLabel(
-        tr("选择源码目录，并确认用于配置目标项目的 CMake 环境。"), projectCard);
+        tr("选择源码目录；仅构建验证模式需要配置 CMake 环境。"), projectCard);
     projectHint->setProperty("role", "muted");
     projectHint->setWordWrap(true);
     projectCardLayout->addWidget(projectTitle);
@@ -148,7 +148,7 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
     auto* optionsTitle = new QLabel(tr("02  分析策略"), optionsCard);
     optionsTitle->setProperty("role", "cardTitle");
     auto* optionsHint = new QLabel(
-        tr("控制编译并行度、探针预算和单次命令超时。"), optionsCard);
+        tr("选择分析方式；构建参数只在构建验证模式中生效。"), optionsCard);
     optionsHint->setProperty("role", "muted");
     optionsHint->setWordWrap(true);
     optionsCardLayout->addWidget(optionsTitle);
@@ -161,6 +161,14 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
     options->setHorizontalSpacing(12);
     options->setVerticalSpacing(11);
     options->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    analysisModeCombo_ = new QComboBox(optionsCard);
+    analysisModeCombo_->setObjectName(QStringLiteral("analysisModeCombo"));
+    analysisModeCombo_->addItem(
+        tr("构建验证（CMake）"),
+        static_cast<int>(doctor::domain::AnalysisMode::BuildVerification));
+    analysisModeCombo_->addItem(
+        tr("源码快速扫描（无需构建）"),
+        static_cast<int>(doctor::domain::AnalysisMode::SourceScan));
     parallelSpin_ = new QSpinBox(optionsCard);
     parallelSpin_->setObjectName(QStringLiteral("parallelJobsSpin"));
     parallelSpin_->setRange(0, 128);
@@ -184,6 +192,7 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
         tr("每行一个 CMake 参数，例如：\n-DCMAKE_PREFIX_PATH=/path/to/Qt"));
     argumentsEdit_->setMinimumHeight(104);
     argumentsEdit_->setMaximumHeight(128);
+    options->addRow(tr("分析模式"), analysisModeCombo_);
     options->addRow(tr("并行任务"), parallelSpin_);
     options->addRow(tr("最大探针"), probesSpin_);
     options->addRow(tr("超时"), timeoutSpin_);
@@ -202,22 +211,22 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
     actionLayout->setSpacing(16);
     auto* actionText = new QVBoxLayout;
     actionText->setSpacing(2);
-    auto* actionTitle = new QLabel(tr("准备好后开始完整诊断"), actionCard);
-    actionTitle->setProperty("role", "cardTitle");
-    auto* actionHint = new QLabel(
+    actionTitle_ = new QLabel(tr("准备好后开始完整诊断"), actionCard);
+    actionTitle_->setProperty("role", "cardTitle");
+    actionHint_ = new QLabel(
         tr("构建与探针文件只会写入诊断工作目录。"), actionCard);
-    actionHint->setProperty("role", "muted");
-    actionText->addWidget(actionTitle);
-    actionText->addWidget(actionHint);
+    actionHint_->setProperty("role", "muted");
+    actionText->addWidget(actionTitle_);
+    actionText->addWidget(actionHint_);
 
-    auto* start = new QPushButton(tr("开始分析整个项目  →"), actionCard);
-    start->setObjectName(QStringLiteral("startAnalysisButton"));
-    start->setProperty("role", "primary");
-    start->setAccessibleName(tr("开始分析整个项目"));
-    start->setMinimumWidth(220);
-    start->setDefault(true);
+    startButton_ = new QPushButton(tr("开始分析整个项目  →"), actionCard);
+    startButton_->setObjectName(QStringLiteral("startAnalysisButton"));
+    startButton_->setProperty("role", "primary");
+    startButton_->setAccessibleName(tr("开始分析整个项目"));
+    startButton_->setMinimumWidth(220);
+    startButton_->setDefault(true);
     actionLayout->addLayout(actionText, 1);
-    actionLayout->addWidget(start, 0, Qt::AlignVCenter);
+    actionLayout->addWidget(startButton_, 0, Qt::AlignVCenter);
     contentLayout->addWidget(actionCard);
     contentLayout->addStretch();
 
@@ -231,12 +240,25 @@ ProjectSetupWidget::ProjectSetupWidget(QWidget* parent)
     connect(workButton, &QPushButton::clicked, this, &ProjectSetupWidget::chooseWorkDirectory);
     connect(projectEdit_, &QLineEdit::editingFinished,
             this, &ProjectSetupWidget::updateDefaultWorkDirectory);
-    connect(start, &QPushButton::clicked, this, &ProjectSetupWidget::startRequested);
+    connect(
+        analysisModeCombo_,
+        qOverload<int>(&QComboBox::currentIndexChanged),
+        this,
+        [this] { updateModeUi(); });
+    connect(
+        startButton_, &QPushButton::clicked,
+        this, &ProjectSetupWidget::startRequested);
 
     QSettings settings;
     setProjectDirectory(settings.value(QStringLiteral("recent/project")).toString());
     cmakeEdit_->setText(settings.value(
         QStringLiteral("tools/cmake"), cmakeEdit_->text()).toString());
+    const auto savedMode = settings.value(
+        QStringLiteral("analysis/mode"),
+        static_cast<int>(doctor::domain::AnalysisMode::BuildVerification)).toInt();
+    const auto modeIndex = analysisModeCombo_->findData(savedMode);
+    analysisModeCombo_->setCurrentIndex(modeIndex < 0 ? 0 : modeIndex);
+    updateModeUi();
 }
 
 }  // namespace doctor::ui

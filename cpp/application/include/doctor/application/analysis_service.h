@@ -12,7 +12,10 @@ using TargetSink = std::function<void(const doctor::domain::TargetResult&)>;
 
 class ProjectAnalysisService {
 public:
-    ProjectAnalysisService(IProjectInspector& inspector, ITargetAnalyzer& analyzer);
+    ProjectAnalysisService(
+        IProjectInspector& inspector,
+        ITargetAnalyzer& analyzer,
+        ISourceScanner* sourceScanner = nullptr);
 
     doctor::domain::ProjectSession run(
         const doctor::domain::ProjectConfig& config,
@@ -24,6 +27,7 @@ public:
 private:
     IProjectInspector& inspector_;
     ITargetAnalyzer& analyzer_;
+    ISourceScanner* sourceScanner_;
 };
 
 }  // namespace doctor::application

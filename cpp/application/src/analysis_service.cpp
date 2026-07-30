@@ -6,8 +6,9 @@ namespace doctor::application {
 
 ProjectAnalysisService::ProjectAnalysisService(
     IProjectInspector& inspector,
-    ITargetAnalyzer& analyzer)
-    : inspector_(inspector), analyzer_(analyzer) {}
+    ITargetAnalyzer& analyzer,
+    ISourceScanner* sourceScanner)
+    : inspector_(inspector), analyzer_(analyzer), sourceScanner_(sourceScanner) {}
 
 doctor::domain::ProjectSession ProjectAnalysisService::run(
     const doctor::domain::ProjectConfig& config,
@@ -16,10 +17,29 @@ doctor::domain::ProjectSession ProjectAnalysisService::run(
     const TargetSink& targets,
     const LogSink& logs) {
     doctor::domain::ProjectSession session;
+    session.analysisMode = doctor::domain::toString(config.analysisMode);
     session.sourceDirectory = config.sourceDirectory;
     session.workDirectory = config.workDirectory;
-    events({"Inspecting", {}, "正在配置项目并读取 CMake File API…", 0, 0});
-    auto inventory = inspector_.inspect(config, cancelled, logs);
+    const bool sourceScan =
+        config.analysisMode == doctor::domain::AnalysisMode::SourceScan;
+    events({
+        sourceScan ? "Scanning" : "Inspecting",
+        {},
+        sourceScan
+            ? QString::fromUtf8("正在扫描项目源码…")
+            : QString::fromUtf8("正在配置项目并读取 CMake File API…"),
+        0,
+        0});
+    ProjectInventory inventory;
+    if (sourceScan) {
+        if (sourceScanner_) {
+            inventory = sourceScanner_->scan(config, cancelled, logs);
+        } else {
+            inventory.error = "源码扫描器不可用";
+        }
+    } else {
+        inventory = inspector_.inspect(config, cancelled, logs);
+    }
     if (!inventory.valid || cancelled.load()) {
         session.cancelled = cancelled.load();
         events(AnalysisEvent{
@@ -45,8 +65,9 @@ doctor::domain::ProjectSession ProjectAnalysisService::run(
             QString::fromUtf8("正在分析 ") + QString::fromStdString(pending.name),
             completed,
             total});
-        auto result = analyzer_.analyze(
-            config, inventory, pending, cancelled, logs);
+        auto result = sourceScan
+            ? pending
+            : analyzer_.analyze(config, inventory, pending, cancelled, logs);
         session.targets.push_back(result);
         ++completed;
         targets(result);
@@ -61,8 +82,9 @@ doctor::domain::ProjectSession ProjectAnalysisService::run(
     events(AnalysisEvent{
         QString::fromUtf8(session.cancelled ? "Cancelled" : "Complete"),
         {},
-        QString::fromUtf8(
-            session.cancelled ? "分析已取消，部分结果已保留" : "整个项目分析完成"),
+        QString::fromUtf8(session.cancelled
+                ? "分析已取消，部分结果已保留"
+                : sourceScan ? "源码扫描完成" : "整个项目分析完成"),
         completed,
         total});
     return session;

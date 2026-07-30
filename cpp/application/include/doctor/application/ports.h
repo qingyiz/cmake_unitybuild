@@ -39,4 +39,13 @@ public:
         const LogSink& log) = 0;
 };
 
+class ISourceScanner {
+public:
+    virtual ~ISourceScanner() = default;
+    virtual ProjectInventory scan(
+        const doctor::domain::ProjectConfig& config,
+        std::atomic_bool& cancelled,
+        const LogSink& log) = 0;
+};
+
 }  // namespace doctor::application

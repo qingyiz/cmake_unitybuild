@@ -4,14 +4,17 @@
 #include "doctor/ui/ui_theme.h"
 
 #include <QFile>
+#include <QComboBox>
 #include <QFrame>
 #include <QLineEdit>
 #include <QPalette>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSignalSpy>
+#include <QSplitter>
 #include <QTableWidget>
 #include <QTemporaryDir>
+#include <QTextBrowser>
 #include <QtTest>
 
 class UiTest final : public QObject {
@@ -77,6 +80,120 @@ private slots:
         work->setText(QStringLiteral(TEST_FIXTURE_DIRECTORY));
         QVERIFY(!widget.validate(&error));
         QVERIFY(error.contains(QStringLiteral("之外")));
+    }
+
+    void sourceScanModeDoesNotRequireCMakeProject() {
+        doctor::ui::ProjectSetupWidget widget;
+        widget.setProjectDirectory(QStringLiteral(TEST_SOURCE_SCAN_DIRECTORY));
+        auto* mode = widget.findChild<QComboBox*>(
+            QStringLiteral("analysisModeCombo"));
+        auto* cmake = widget.findChild<QLineEdit*>(
+            QStringLiteral("cmakeExecutableEdit"));
+        QVERIFY(mode);
+        QVERIFY(cmake);
+        mode->setCurrentIndex(mode->findData(
+            static_cast<int>(doctor::domain::AnalysisMode::SourceScan)));
+        cmake->setText(QStringLiteral("/does/not/exist"));
+
+        QString error;
+        QVERIFY2(widget.validate(&error), qPrintable(error));
+        QVERIFY(
+            widget.config().analysisMode ==
+            doctor::domain::AnalysisMode::SourceScan);
+        QVERIFY(!cmake->isEnabled());
+        const auto screenshotPath =
+            qEnvironmentVariable("UNITY_DOCTOR_SOURCE_SETUP_SCREENSHOT");
+        if (!screenshotPath.isEmpty()) {
+            widget.setStyleSheet(doctor::ui::buildUiStyleSheet(widget.palette()));
+            widget.resize(1320, 840);
+            widget.show();
+            QTest::qWait(80);
+            QVERIFY(widget.grab().save(screenshotPath));
+        }
+    }
+
+    void sourceWorkspaceShowsEveryRiskInOneCheck() {
+        doctor::ui::AnalysisWorkspaceWidget widget;
+        widget.reset(QStringLiteral("source-fixture"), true);
+        const auto issue = [](const QString& id, const QString& summary) {
+            return QVariantMap{
+                {QStringLiteral("id"), id},
+                {QStringLiteral("ruleId"), QStringLiteral("UBD-MACRO-001")},
+                {QStringLiteral("category"), QStringLiteral("SOURCE_MACRO_LEAK")},
+                {QStringLiteral("severity"), QStringLiteral("warning")},
+                {QStringLiteral("summary"), summary},
+                {QStringLiteral("fingerprint"), id},
+                {QStringLiteral("confidence"), 0.75},
+                {QStringLiteral("sources"), QStringList{id + QStringLiteral(".cpp")}},
+                {QStringLiteral("evidence"), QStringList{QStringLiteral("#define FLAG")}},
+                {QStringLiteral("suggestion"), QStringLiteral("使用后 #undef")},
+                {QStringLiteral("cmake"), QStringLiteral("# candidate")}};
+        };
+        widget.addTarget(QVariantMap{
+            {QStringLiteral("name"), QStringLiteral("宏定义检查")},
+            {QStringLiteral("type"), QStringLiteral("SOURCE_SCAN")},
+            {QStringLiteral("status"), QStringLiteral("Risk Found")},
+            {QStringLiteral("stage"), QStringLiteral("source-scan")},
+            {QStringLiteral("issues"), QVariantList{
+                 issue(QStringLiteral("first"), QStringLiteral("第一条风险")),
+                 issue(QStringLiteral("second"), QStringLiteral("第二条风险"))}}});
+
+        auto* table = widget.findChild<QTableWidget*>(
+            QStringLiteral("targetsTable"));
+        auto* details = widget.findChild<QTextBrowser*>(
+            QStringLiteral("issueDetails"));
+        auto* cmake = widget.findChild<QPlainTextEdit*>(
+            QStringLiteral("cmakeSuggestion"));
+        auto* detailSplitter = widget.findChild<QSplitter*>(
+            QStringLiteral("detailContentSplitter"));
+        auto* focus = widget.findChild<QPushButton*>(
+            QStringLiteral("focusDetailsButton"));
+        auto* targetsPane = widget.findChild<QFrame*>(
+            QStringLiteral("targetsPane"));
+        auto* logCard = widget.findChild<QFrame*>(
+            QStringLiteral("logCard"));
+        QVERIFY(table);
+        QVERIFY(details);
+        QVERIFY(cmake);
+        QVERIFY(detailSplitter);
+        QVERIFY(focus);
+        QVERIFY(targetsPane);
+        QVERIFY(logCard);
+        QCOMPARE(table->horizontalHeaderItem(0)->text(), QStringLiteral("检查项"));
+        QVERIFY(details->toPlainText().contains(QStringLiteral("第一条风险")));
+        QVERIFY(details->toPlainText().contains(QStringLiteral("第二条风险")));
+        QCOMPARE(detailSplitter->orientation(), Qt::Vertical);
+        QCOMPARE(detailSplitter->count(), 2);
+        QVERIFY(!detailSplitter->childrenCollapsible());
+
+        widget.resize(1320, 840);
+        widget.show();
+        QTest::qWait(50);
+        const auto detailsBefore = details->toPlainText();
+        const auto cmakeBefore = cmake->toPlainText();
+        const auto splitterSizes = detailSplitter->sizes();
+        QVERIFY(splitterSizes.at(0) > splitterSizes.at(1));
+        QVERIFY(splitterSizes.at(1) > 0);
+
+        QTest::mouseClick(focus, Qt::LeftButton);
+        QVERIFY(!targetsPane->isVisible());
+        QVERIFY(!logCard->isVisible());
+        QVERIFY(details->isVisible());
+        QCOMPARE(focus->text(), QStringLiteral("退出专注"));
+        const auto screenshotPath =
+            qEnvironmentVariable("UNITY_DOCTOR_FOCUSED_DETAIL_SCREENSHOT");
+        if (!screenshotPath.isEmpty()) {
+            widget.setStyleSheet(doctor::ui::buildUiStyleSheet(widget.palette()));
+            QTest::qWait(50);
+            QVERIFY(widget.grab().save(screenshotPath));
+        }
+
+        QTest::mouseClick(focus, Qt::LeftButton);
+        QVERIFY(targetsPane->isVisible());
+        QVERIFY(logCard->isVisible());
+        QCOMPARE(focus->text(), QStringLiteral("专注详情"));
+        QCOMPARE(details->toPlainText(), detailsBefore);
+        QCOMPARE(cmake->toPlainText(), cmakeBefore);
     }
 
     void projectsTargetsAndCapsVisibleLogs() {
@@ -153,6 +270,7 @@ private slots:
         QVERIFY(QFile::exists(work.filePath(QStringLiteral("session.json"))));
         QVERIFY(QFile::exists(work.filePath(QStringLiteral("analysis.log"))));
     }
+
 };
 
 QTEST_MAIN(UiTest)

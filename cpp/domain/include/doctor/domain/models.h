@@ -5,18 +5,25 @@
 
 namespace doctor::domain {
 
+enum class AnalysisMode {
+    BuildVerification,
+    SourceScan
+};
+
 enum class TargetStatus {
     Pending,
     Running,
     Passed,
     BaselineFailed,
     UnityFailed,
+    RiskFound,
     NonReplayable,
     Cancelled,
     Unsupported
 };
 
 struct ProjectConfig {
+    AnalysisMode analysisMode{AnalysisMode::BuildVerification};
     std::string sourceDirectory;
     std::string workDirectory;
     std::string cmakeExecutable{"cmake"};
@@ -31,6 +38,7 @@ struct ProjectConfig {
 
 struct Issue {
     std::string id;
+    std::string ruleId;
     std::string target;
     std::string category;
     std::string severity{"error"};
@@ -71,6 +79,7 @@ struct TargetResult {
 };
 
 struct ProjectSession {
+    std::string analysisMode{"build-verification"};
     std::string sourceDirectory;
     std::string workDirectory;
     std::vector<TargetResult> targets;
@@ -78,5 +87,6 @@ struct ProjectSession {
 };
 
 std::string toString(TargetStatus status);
+std::string toString(AnalysisMode mode);
 
 }  // namespace doctor::domain

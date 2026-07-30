@@ -89,8 +89,12 @@ void MainWindow::startAnalysis() {
     settings.setValue(
         QStringLiteral("tools/cmake"),
         QString::fromStdString(config.cmakeExecutable));
+    settings.setValue(
+        QStringLiteral("analysis/mode"),
+        static_cast<int>(config.analysisMode));
     workspace_->reset(QFileInfo(
-        QString::fromStdString(config.sourceDirectory)).fileName());
+        QString::fromStdString(config.sourceDirectory)).fileName(),
+        config.analysisMode == doctor::domain::AnalysisMode::SourceScan);
     pages_->setCurrentWidget(workspace_);
     controller_->start(config);
 }

@@ -120,6 +120,12 @@ QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QPlainTextEdit:focus,
 QTextBrowser:focus {
     border: 2px solid %6;
 }
+QLineEdit:disabled, QComboBox:disabled, QSpinBox:disabled,
+QPlainTextEdit:disabled {
+    color: %7;
+    background: %5;
+    border-color: %4;
+}
 QPushButton {
     color: %2;
     background: %3;
@@ -198,8 +204,19 @@ QTableCornerButton::section {
     border: 0;
 }
 QSplitter::handle {
-    background: transparent;
+    background: %5;
+    border-radius: 3px;
+}
+QSplitter::handle:horizontal {
     width: 10px;
+    margin: 0 3px;
+}
+QSplitter::handle:vertical {
+    height: 10px;
+    margin: 3px 0;
+}
+QSplitter::handle:hover {
+    background: %12;
 }
 QScrollBar:vertical {
     background: transparent;

@@ -3,6 +3,7 @@
 #include "doctor/application/analysis_service.h"
 #include "doctor/infrastructure/cmake_backend.h"
 #include "doctor/infrastructure/report_exporter.h"
+#include "doctor/infrastructure/source_scan_backend.h"
 
 #include <QDir>
 #include <QFile>
@@ -21,7 +22,9 @@ public:
         QFile logFile(QDir(workDirectory).filePath(QStringLiteral("analysis.log")));
         logFile.open(QIODevice::WriteOnly | QIODevice::Text);
         doctor::infrastructure::CMakeBackend backend;
-        doctor::application::ProjectAnalysisService service(backend, backend);
+        doctor::infrastructure::SourceScanBackend sourceBackend;
+        doctor::application::ProjectAnalysisService service(
+            backend, backend, &sourceBackend);
         const auto session = service.run(
             config,
             cancelled_,
@@ -41,7 +44,9 @@ public:
                 for (const auto& issue : result.issues) {
                     QVariantMap value;
                     value.insert("id", QString::fromStdString(issue.id));
+                    value.insert("ruleId", QString::fromStdString(issue.ruleId));
                     value.insert("category", QString::fromStdString(issue.category));
+                    value.insert("severity", QString::fromStdString(issue.severity));
                     value.insert("summary", QString::fromStdString(issue.summary));
                     value.insert("fingerprint", QString::fromStdString(issue.fingerprint));
                     value.insert("confidence", issue.confidence);

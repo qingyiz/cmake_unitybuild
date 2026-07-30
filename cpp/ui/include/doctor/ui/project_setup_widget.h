@@ -7,7 +7,9 @@
 class QComboBox;
 class QLineEdit;
 class QPlainTextEdit;
+class QPushButton;
 class QSpinBox;
+class QLabel;
 
 namespace doctor::ui {
 
@@ -32,7 +34,9 @@ private:
     void chooseProject();
     void chooseWorkDirectory();
     void updateDefaultWorkDirectory();
+    void updateModeUi();
 
+    QComboBox* analysisModeCombo_{nullptr};
     QLineEdit* projectEdit_{nullptr};
     QLineEdit* workEdit_{nullptr};
     QLineEdit* cmakeEdit_{nullptr};
@@ -42,6 +46,9 @@ private:
     QSpinBox* parallelSpin_{nullptr};
     QSpinBox* probesSpin_{nullptr};
     QSpinBox* timeoutSpin_{nullptr};
+    QLabel* actionTitle_{nullptr};
+    QLabel* actionHint_{nullptr};
+    QPushButton* startButton_{nullptr};
 };
 
 }  // namespace doctor::ui

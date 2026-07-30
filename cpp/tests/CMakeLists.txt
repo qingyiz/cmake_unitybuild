@@ -29,6 +29,8 @@ target_compile_definitions(doctor_backend_tests PRIVATE
     TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     TEST_CMAKE_GENERATOR="${CMAKE_GENERATOR}"
     TEST_FIXTURE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/multi_target"
+    TEST_SOURCE_SCAN_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/source_scan"
+    TEST_DEMO_DIRECTORY="${CMAKE_SOURCE_DIR}/examples/unity_risk_demo"
 )
 add_test(NAME doctor_backend_tests COMMAND doctor_backend_tests)
 
@@ -43,6 +45,7 @@ target_compile_definitions(doctor_ui_tests PRIVATE
     TEST_CMAKE_COMMAND="${CMAKE_COMMAND}"
     TEST_CMAKE_GENERATOR="${CMAKE_GENERATOR}"
     TEST_FIXTURE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/multi_target"
+    TEST_SOURCE_SCAN_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/fixtures/source_scan"
 )
 add_test(NAME doctor_ui_tests COMMAND doctor_ui_tests)
 set_tests_properties(doctor_ui_tests PROPERTIES

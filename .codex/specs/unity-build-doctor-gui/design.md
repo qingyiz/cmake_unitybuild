@@ -13,8 +13,8 @@
 ## 设计摘要
 
 - 目标：交付原生 Qt/C++ 桌面应用，让用户选择任意 CMake C/C++ 项目后，在界面中完成全项目 target 发现、普通/Unity 双构建、冲突最小化、问题分类与修复建议查看。
-- 覆盖行为：REQ-001–REQ-009。
-- 核心方案：Qt 5.15/Qt 6.4 Widgets 共源码原生 `.app`，C++17 分层核心，QProcess 驱动目标项目工具链，CMake File API/compile database 获取语义信息，后台 worker 顺序分析全部 buildable target。
+- 覆盖行为：REQ-001–REQ-010。
+- 核心方案：Qt 5.15/Qt 6.4 Widgets 共源码原生 `.app`；构建验证由 QProcess/CMake File API/compile database 驱动，源码快速扫描由进程内 C++17 词法规则与只读文件适配器驱动，两种模式共用后台 worker、session 和结果工作台。
 - 交付物：`build/bin/UnityBuildDoctor.app` 开发应用束；`dist/UnityBuildDoctor.app` 自包含部署应用束。
 - 既有 Python CLI 保留为历史原型和测试思路参考，不是 GUI 的运行时依赖，也不由 GUI 调用。
 
@@ -31,6 +31,7 @@
 | 构建工具 | `cmake --version`、`ninja --version` | CMake 3.27.1、Ninja 1.11.1 | 自身使用 CMake/Ninja；目标项目运行时探测自己的 generator/kit |
 | 主机 | Apple Clang 17 target triple | macOS arm64 | required 原生交付先锁定 macOS arm64 |
 | 应用图标 | 开发包与部署包 `CFBundleIconFile=""`，Resources 无 `.icns` | 当前 bundle 没有应用图标 | `UnityBuildDoctor` target 必须拥有并复制原生图标资源 |
+| 分析模式 | `ProjectConfig` 无 mode；`AnalysisWorker` 始终构造 `CMakeBackend`；设置页验证始终要求 CMakeLists/CMake executable | 当前只能构建后分析 | 新增 mode、源码扫描 port/adapter 和条件化 UI 校验 |
 
 ### 工具链与兼容性基线
 
@@ -50,6 +51,7 @@
 - 不自动修改 `.cpp/.h/CMakeLists.txt`；建议支持复制和导出。
 - 应用自身 Qt 版本与被分析项目 Qt 版本解耦。
 - 无法重放、configure 失败、普通构建失败和取消都作为一等状态显示，不伪造根因。
+- 源码快速扫描只输出风险候选；在不知道 target/group 的情况下不得升级为“已确认 Unity 失败”。
 
 ## 方案比较
 
@@ -59,6 +61,8 @@
 | B. Qt Widgets + C++ 原生诊断核心 | 覆盖全部 Must | 单一 `.app`、原生交互、可控线程/取消、无 Python 依赖 | 需要移植算法与报告模型 | 采用 |
 | C. Qt Quick/QML | 可实现现代 UI | 动画和声明式布局 | 增加 QML 部署、测试和团队技术复杂度 | 当前否决，Widgets 足够 |
 | D. 静态扫描所有源码但不构建 | 速度快 | 无需配置工具链 | 宏/生成源/编译上下文误报高，无法证明 Unity 专属问题 | 仅作补充证据 |
+| E. 在 UI/Controller 中直接用正则遍历文件 | 改动少 | 快速接入 | 规则、I/O 与线程边界耦合，无法独立测试 | 否决 |
+| F. domain 词法规则 + infrastructure 只读目录适配器 | 覆盖 REQ-010 | 无外部依赖、可测试、复用现有 worker/session | 无 AST/target 语义，需明确候选置信度 | 采用 |
 
 ### DEC-001：采用 Qt 5/6 Widgets/C++17 共源码原生应用
 
@@ -97,6 +101,7 @@
 - 上下文与需求：REQ-001、REQ-005、REQ-006、REQ-008。
 - 决策：窗口由项目设置页和分析工作台组成；工作台左侧 target/问题筛选，中间问题表，右侧详情；底部可折叠实时日志；顶部显示全局进度、开始/取消/重新分析。
 - 视觉决策：设置页使用受控最大宽度、页头状态标识、项目/工具链与分析策略卡片、底部行动区；工作台复用相同卡片、主次按钮和状态徽章。颜色、边框、悬停和选择态均由运行时 `QPalette` 派生，禁止为正文硬编码仅适用于浅色模式的颜色。
+- 详情空间决策：结果列表/详情使用可拖动水平 `QSplitter`，详情正文/CMake 建议使用可拖动垂直 `QSplitter`；详情头提供“专注详情/退出专注”可逆操作，专注时只隐藏结果列表与实时日志，不销毁当前选择、详情内容或分析状态。
 - 理由：项目级总览、问题定位和证据阅读可以在一屏完成。
 - 代价：需要清晰的 model/view 状态同步。
 - 被否决方案：多层 wizard、每个问题独立弹窗。
@@ -117,6 +122,14 @@
 - 代价：仓库增加一份 PNG 源资产和一份派生 `.icns`；修改图标时需要重新生成 `.icns`。
 - 被否决方案：仅设置运行时窗口图标；它不能覆盖 Finder 中的 bundle 图标。
 
+### DEC-008：增加独立源码快速扫描管线
+
+- 上下文与需求：REQ-010。
+- 决策：`ProjectConfig::analysisMode` 在 `BuildVerification` 与 `SourceScan` 间选择；`doctor_domain` 以注释/字符串感知、花括号深度和预处理行状态实现三类纯规则，`doctor_infrastructure::SourceScanBackend` 负责递归只读文件，`ProjectAnalysisService` 负责模式分派并把三组检查投影为现有 `TargetResult`。
+- 理由：无需编译参数即可稳定识别用户点名的词法风险，同时保持 UI 不接触文件 I/O、domain 不依赖 Qt。
+- 代价：源码模式不知道真实 target 和 Unity group，跨文件冲突只能标记为项目级候选；首版不承诺完整 C++ 语义。
+- 被否决方案：UI 中直接正则扫描；引入 libclang，因为无 compile database 时仍缺少可靠编译上下文且增加部署依赖。
+
 ## 总体架构
 
 ```mermaid
@@ -135,7 +148,7 @@ flowchart LR
 
 ### ARCH-001：doctor_domain
 
-- 单一职责：诊断模型、失败指纹、保序最小化、分类与建议策略。
+- 单一职责：诊断模型、失败指纹、保序最小化、构建分类、源码风险词法规则与建议策略。
 - 公开契约：标准 C++ value types 与纯函数。
 - 允许依赖：C++17 标准库。
 - 禁止依赖：Qt Widgets、QProcess、文件系统 UI 状态。
@@ -144,14 +157,14 @@ flowchart LR
 ### ARCH-002：doctor_application
 
 - 单一职责：项目分析状态机、逐 target 编排、预算/取消和事件发布。
-- 公开契约：`ProjectAnalysisRequest`、`IProjectInspector`、`IBuildRunner`、`IProbeRunner`、`ISessionStore`、`AnalysisEventSink`。
+- 公开契约：`ProjectConfig`、`IProjectInspector`、`ITargetAnalyzer`、`ISourceScanner`、`AnalysisEventSink`。
 - 允许依赖：doctor_domain、Qt Core（线程安全 value/回调桥）。
 - 禁止依赖：Qt Widgets、具体 QProcess/CMake JSON 实现。
 - 目录/target：`cpp/application/` / `doctor_application`。
 
 ### ARCH-003：doctor_infrastructure
 
-- 单一职责：QProcess 执行、CMake configure/build、File API/compile database、Unity driver、session/export。
+- 单一职责：QProcess 执行、CMake configure/build、File API/compile database、Unity driver、只读源码目录枚举、session/export。
 - 公开契约：实现 application ports。
 - 允许依赖：doctor_application、doctor_domain、Qt Core。
 - 禁止依赖：Widgets 和窗口对象。
@@ -197,9 +210,9 @@ flowchart LR
 
 | Target | 类型 | 所有模块 | Public 依赖 | Private 依赖 | 定义位置 |
 |---|---|---|---|---|---|
-| `doctor_domain` | STATIC | domain | 无 | 无 | `cpp/domain/CMakeLists.txt` |
+| `doctor_domain` | STATIC | domain 构建诊断与源码扫描规则 | 无 | 无 | `cpp/domain/CMakeLists.txt` |
 | `doctor_application` | STATIC | application/ports | doctor_domain、`Qt${QT_VERSION_MAJOR}::Core` | 无 | `cpp/application/CMakeLists.txt` |
-| `doctor_infrastructure` | STATIC | adapters | doctor_application/domain、`Qt${QT_VERSION_MAJOR}::Core` | 无 | `cpp/infrastructure/CMakeLists.txt` |
+| `doctor_infrastructure` | STATIC | CMake/QProcess/文件扫描 adapters | doctor_application/domain、`Qt${QT_VERSION_MAJOR}::Core` | 无 | `cpp/infrastructure/CMakeLists.txt` |
 | `UnityBuildDoctor` | MACOSX_BUNDLE | UI/composition | doctor_application/domain | doctor_infrastructure、`Qt${QT_VERSION_MAJOR}::Widgets` | `cpp/app/CMakeLists.txt` |
 | `doctor_*_tests` | test executables | 对应模块测试 | 对应 target、`Qt${QT_VERSION_MAJOR}::Test` | 无 | `cpp/tests/CMakeLists.txt` |
 
@@ -243,6 +256,7 @@ flowchart LR
 ### 项目设置页
 
 - 页头：产品标识、标题、用途说明和“只读分析”状态标识。
+- 分析模式：默认“构建验证”，可切换“源码快速扫描（无需构建）”；源码模式禁用并跳过 CMake、generator、configuration、并行/探针/超时和附加参数校验。
 - 项目目录（选择文件夹/拖放）。
 - 诊断工作目录（默认缓存目录，可改）。
 - CMake executable、generator、configuration。
@@ -256,8 +270,11 @@ flowchart LR
 - 左侧：总览、全部 target、仅失败 target、问题分类和严重度过滤。
 - 中间：target/问题表，列出状态、阶段、问题数、普通/Unity 结果。
 - 右侧：问题摘要、最小冲突文件、失败指纹、证据、建议、CMake 片段和复制按钮。
+- 右侧正文与 CMake 片段之间使用可拖动垂直分栏；默认优先分配正文空间，不设置固定最大高度。
+- “专注详情”隐藏左侧结果卡片与底部日志卡片，使右侧详情使用全部主内容宽度和更多纵向空间；再次点击恢复原布局。
 - 底部：实时日志，可按 configure/build/probe 过滤，支持打开日志目录。
 - 空状态、首次使用说明、取消/失败恢复均在主窗口内呈现。
+- 源码模式把“宏定义检查”“文件级 using namespace”“文件级 static 冲突”显示为三个检查项，状态使用 `Risk Found`/`Passed`，详情可连续展示同一检查项的全部发现。
 
 ## 接口契约
 
@@ -269,6 +286,18 @@ flowchart LR
 | `ProbeRunner::compile` | ordered sources/context/fingerprint | probe record | reproduced/different/non-replayable |
 | `SessionStore::save/load` | session | atomic JSON | corrupt/version mismatch |
 | `ReportExporter::exportAll` | session/path | JSON/Markdown/CMake | I/O error |
+| `ISourceScanner::scan` | source directory + cancel | 三组 `TargetResult` + 文件/行证据 | no-supported-source/cancelled/read-error |
+
+### 源码快速扫描规则
+
+| 规则 | 词法状态 | 输出 |
+|---|---|---|
+| `UBD-MACRO-001` | 按文件顺序维护 `#define/#undef`，文件结束仍活动 | 每文件一条宏泄漏候选，证据为定义行 |
+| `UBD-MACRO-002` | 不同文件活动同名宏的规范化替换文本不同 | 每宏一条高风险冲突，列出全部定义 |
+| `UBD-USING-001` | 去除注释/字符串后，花括号深度 0 出现 `using namespace` | 每文件一条文件作用域污染候选 |
+| `UBD-STATIC-001` | 去除注释/字符串后，不同源文件在花括号深度 0 提取到同名 `static` 声明/定义 | 每符号一条高风险冲突；函数局部与类体不参与 |
+
+扫描扩展名固定为 `.c/.cc/.cpp/.cxx/.m/.mm`；默认跳过 `.git/.svn/.hg/build/out/dist/cmake-build-*`、符号链接和大于 2 MiB 文件。路径按项目相对路径排序，确保结果稳定。
 
 ## 状态与关键流程
 
@@ -310,6 +339,22 @@ sequenceDiagram
     S-->>UI: complete session
 ```
 
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as Setup/Workspace
+    participant S as ProjectAnalysisService
+    participant F as SourceScanBackend
+    participant D as domain source_scan
+    U->>UI: 选择源码快速扫描
+    UI->>S: run(mode=SourceScan)
+    S->>F: scan(directory, cancel)
+    F->>D: scanSourceRisks(documents)
+    D-->>F: rule findings
+    F-->>S: 三组检查结果
+    S-->>UI: Risk Found / Passed + evidence
+```
+
 ## 错误处理与恢复
 
 | 失败点 | UI 行为 | 后端行为 | 恢复 |
@@ -320,11 +365,14 @@ sequenceDiagram
 | Unity 失败 | 创建案件 | 最小化/分类 | 复制建议后重新分析 |
 | 探针不重放 | 显示证据不足 | `NON_REPLAYABLE` | 查看原日志/排除 source |
 | 取消/关闭 | 显示 Cancelling | terminate→kill 超时、保存 | 恢复或新会话 |
+| 源码目录无支持文件 | 项目错误卡片 | 不调用 CMake/编译器 | 重新选择目录 |
+| 文件不可读/超过上限 | 日志记录跳过 | 继续其他文件 | 调整权限或移除大文件 |
 
 ## 非功能设计
 
 - 性能：目录扫描在 worker；UI 事件节流到不高于 20Hz；日志视图保留最近 10,000 行，完整日志落盘。
 - 安全：源码树只读；work root 重叠校验；QProcess argv；不记录环境变量值。
+- 源码扫描：不创建目标源码树内文件，不启动外部进程；每读取一个文件检查取消标记，单文件最多 2 MiB。
 - 可观测性：每条命令 argv/cwd/exit/duration/log；每 target 阶段和进度事件。
 - 可访问性：键盘可达、按钮有 accessibleName、状态不只依赖颜色、支持系统深浅色。
 - 视觉适配：`UiTheme` 只依赖 `QPalette` 生成页面样式；系统 Palette 变化时重新应用，不在页面样式中引入固定背景图片或固定浅色背景。bundle 应用图标是独立交付资源。
@@ -378,9 +426,25 @@ sequenceDiagram
 - 属性：取消后不再启动新 target，当前 QProcess 在超时边界内终止，session 为 CANCELLED/PARTIAL。
 - 验证：长运行假进程 QtTest。
 
+### PROP-008：源码模式零构建依赖
+- 来源：REQ-010。
+- 属性：对于任意含受支持源文件的可读目录，即使 CMake 路径无效且不存在 `CMakeLists.txt`，SourceScan 仍能完成且不调用 `IProjectInspector/ITargetAnalyzer`。
+- 验证：fake ports + 无 CMake fixture 集成测试。
+
+### PROP-009：源码词法作用域准确性
+- 来源：REQ-010。
+- 属性：注释/字符串、函数体与类体中的 `using namespace/static` 以及已 `#undef` 的宏不会产生对应发现；不同文件同名文件作用域 static 必须产生一条稳定发现。
+- 验证：domain 表驱动测试与顺序稳定性测试。
+
+### PROP-010：详情专注状态可逆
+- 来源：REQ-008、AC-008.7。
+- 属性：对于任意已展示的 target/检查项，进入再退出详情专注状态后，结果列表、日志、当前详情与 CMake 建议仍可见且内容不变；垂直 splitter 两侧始终可由用户调整到非零可见尺寸。
+- 验证：QtTest 点击状态往返、widget 可见性、详情内容和 splitter 子控件测试。
+
 ## 测试策略
 
 - domain 使用纯 C++ 单元/性质测试。
+- source scan 使用纯 C++ 词法夹具、无 CMake 目录集成测试和 offscreen 模式切换测试。
 - application 使用 fake ports 验证全 target 状态机、门禁和取消。
 - infrastructure 使用真实 CMake/Clang 夹具。
 - UI 使用 QtTest offscreen 验证交互、线程和 model/view。
@@ -397,13 +461,15 @@ sequenceDiagram
 | REQ-005 | domain/IssueDetail | ARCH-001,004 | DEC-005 | PROP-003 | domain+UI test |
 | REQ-006 | Suggestion/Exporter | ARCH-001,003,004 | DEC-006 | PROP-006 | export test |
 | REQ-007 | SessionStore | ARCH-003,007 | DEC-004,006 | PROP-005,006 | recovery test |
-| REQ-008 | all UI | ARCH-004,006 | DEC-003,005 | PROP-004 | offscreen UI test |
+| REQ-008 | all UI | ARCH-004,006 | DEC-003,005 | PROP-004,010 | offscreen UI test |
 | REQ-009 | deployment | BUILD-003,005 | DEC-001,007 | PROP-005 | bundle/icon/smoke |
+| REQ-010 | SourceScanBackend/domain/UI mode | ARCH-001–004,006,007 / BUILD-002,004 | DEC-008 | PROP-004,005,008,009 | domain fixture + no-CMake integration + QtTest |
 
 ## 风险与未决问题
 
 - RISK-001：大型项目逐 target 双构建耗时高；提供过滤、取消、缓存和进度，不牺牲完整性声明。
 - RISK-002：目标项目自定义 wrapper/response file 可能无法重放；明确 `NON_REPLAYABLE`。
 - RISK-003：真实 Qt 5/6 项目 AUTOGEN 差异需要后续用户项目校准。
+- RISK-004：源码快速扫描不知道真实 target/group；跨文件发现保持候选语义，构建验证是确认路径。
 - [x] GUI 使用 Qt 5.15.2/Qt 6.4.3 Widgets 共源码构建，目标项目 Qt 版本运行时探测。
 - [x] required 交付平台为 macOS arm64 `.app`；Windows/Linux 后续。

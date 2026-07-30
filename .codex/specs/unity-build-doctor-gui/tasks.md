@@ -2,7 +2,7 @@
 
 > 阶段：tasks
 >
-> 状态：执行中（核心 GUI MVP 已完成）
+> 状态：执行中（核心 GUI MVP 与源码扫描模式已完成）
 >
 > 最近更新：2026-07-30
 
@@ -20,6 +20,10 @@
 | 8 | TASK-011 |
 | 9 | TASK-012 |
 | 10 | TASK-013 |
+| 11 | TASK-014 |
+| 12 | TASK-015 |
+| 13 | TASK-016 |
+| 14 | TASK-017 |
 
 ## 任务列表
 
@@ -234,6 +238,91 @@
     `verify_delivery.py` 验证两个开发包和自包含部署包通过，部署包
     `codesign --verify --deep --strict` 与隔离 Cocoa 截图启动通过。
 
+- [x] TASK-014：实现三类纯源码风险规则
+  - 类型：required
+  - 需求：REQ-010（AC-010.4–010.7）
+  - 设计：DEC-008；ARCH-001；PROP-009
+  - 单一变更原因：建立不依赖 Qt、文件系统或编译器的可测试词法规则内核。
+  - 模块/构建单元：`doctor_domain`
+  - 架构约束：ARCH-001 / BUILD-002
+  - 依赖变化：仅 C++17 标准库，无新增 link 依赖
+  - 平台/交付物：平台无关静态库，不产生独立交付物
+  - 依赖：TASK-002
+  - 修改范围：domain source-scan model/parser、domain tests；不读取目录、不修改 UI
+  - 产出：`UBD-MACRO-001/002`、`UBD-USING-001`、`UBD-STATIC-001` 稳定发现
+  - 验证：表驱动测试覆盖活动/已清理宏、注释/字符串、全局/局部 using、全局/局部/类 static、确定性顺序
+  - 实施记录：已完成。`doctor_domain` 新增独立的源码事实提取与风险归并，
+    稳定输出 `UBD-MACRO-001/002`、`UBD-USING-001`、
+    `UBD-STATIC-001`；解析器感知注释、字符串和花括号深度，已由
+    domain tests 覆盖活动/已 `#undef` 宏、块注释、全局/局部 using、
+    文件/函数/类 static 与输入顺序确定性。规则和解析文件均低于 300 行。
+
+- [x] TASK-015：接入只读源码目录扫描用例
+  - 类型：required
+  - 需求：REQ-010（AC-010.2, AC-010.3, AC-010.8）、REQ-003、REQ-007
+  - 设计：DEC-008；ARCH-002,003,006,007；PROP-004,005,008
+  - 单一变更原因：把项目目录转换为不启动外部进程的可取消源码检查结果。
+  - 模块/构建单元：`doctor_infrastructure` + `doctor_application` source-scan port 竖切
+  - 架构约束：ARCH-002,003,006,007 / BUILD-002,004
+  - 依赖变化：application 新增 `ISourceScanner`；infrastructure 实现只读适配器并依赖 domain 规则
+  - 平台/交付物：平台无关扫描逻辑，集成入 macOS `.app`
+  - 依赖：TASK-005, TASK-014
+  - 修改范围：analysis mode/model、application dispatch、source scanner adapter、session mode、fixtures/integration tests；不修改页面布局
+  - 产出：无 CMakeLists/无有效 CMake executable 也能完成的 `source-scan` session
+  - 验证：无 CMake fixture、目录排除/大文件/取消、无外部进程、session/report mode 集成测试
+  - 实施记录：已完成。新增 `ISourceScanner` 与
+    `SourceScanBackend`，递归读取六类源文件并跳过符号链接、版本控制/
+    build/output 目录和超过 2 MiB 的文件；application 按
+    `AnalysisMode` 分派，源码模式直接投影三个检查项，不调用 inspector、
+    target analyzer 或外部进程。无 CMakeLists 且 CMake 路径无效的 fixture
+    可生成 `source-scan` session/report；排除、大文件、取消与模式字段均有
+    backend 集成测试。
+
+- [x] TASK-016：在设置页和工作台提供源码扫描模式
+  - 类型：required
+  - 需求：REQ-010（AC-010.1, AC-010.7）、REQ-008
+  - 设计：DEC-005,008；ARCH-004,006,007；PROP-004,008
+  - 单一变更原因：让用户从 GUI 选择源码扫描并正确理解风险候选结果。
+  - 模块/构建单元：`doctor_ui`
+  - 架构约束：ARCH-004,006,007 / BUILD-002
+  - 依赖变化：UI 只传递 `AnalysisMode` 并消费既有结果事件；不新增文件/QProcess 依赖
+  - 平台/交付物：Qt 5/Qt 6 macOS `.app`
+  - 依赖：TASK-006, TASK-007, TASK-015
+  - 修改范围：设置页模式选择与条件校验、工作台检查项/多问题展示、controller 组合、UI tests、README；不在 UI 实现扫描规则
+  - 产出：可选择“源码快速扫描（无需构建）”并查看/导出全部风险
+  - 验证：无 CMake 项目 UI 启动、字段禁用、三检查项投影、多问题详情、Qt5/Qt6 CTest、原生截图
+  - 实施记录：已完成。设置页新增“构建验证（CMake）/源码快速扫描
+    （无需构建）”选择，源码模式放宽 CMakeLists/CMake 校验并禁用构建参数，
+    同步切换主操作说明；工作台使用检查项语义、`Risk Found` 汇总并连续展示
+    全部规则、级别、文件、行号证据和建议。controller、session、JSON/Markdown
+    报告携带模式与规则编号。Qt 5.15.2、Qt 6.4.3 均 4/4 CTest 通过，Qt 6
+    1320×840 源码模式截图已人工复核禁用态与主操作；Qt 6 Release 已重新部署
+    到 `dist/UnityBuildDoctor.app`，通过 deep/strict 签名校验并使用 Cocoa
+    platform plugin 启动。新增 `examples/unity_risk_demo` 手工验收工程，
+    后端测试确认三个检查项全部为 `Risk Found`、共 5 条候选；工程普通构建
+    成功运行，Unity Build 稳定复现宏重定义警告与 `fileCache` 重定义错误。
+
+- [x] TASK-017：扩大问题详情可见区域
+  - 类型：required
+  - 需求：REQ-008（AC-008.7）
+  - 设计：DEC-005；ARCH-004；PROP-010
+  - 单一变更原因：让多条风险详情和 CMake 建议在工作台中拥有可调且可专注的阅读空间。
+  - 模块/构建单元：`doctor_ui`
+  - 架构约束：ARCH-004 / BUILD-002
+  - 依赖变化：无新增 include/link target 边；仅使用既有 Qt Widgets `QSplitter`
+  - 平台/交付物：Qt 5/Qt 6 macOS `.app`
+  - 依赖：TASK-007, TASK-016
+  - 修改范围：`AnalysisWorkspaceWidget` 布局/状态、UI tests、原生截图；不修改分析规则、session、报告或后端
+  - 产出：可拖动的详情/CMake 垂直分栏，以及可逆的“专注详情”工作台状态
+  - 验证：QtTest 验证分栏子控件与专注状态往返；Qt5/Qt6 CTest；1320×840 工作台截图；部署 `.app` 启动
+  - 实施记录：已完成。工作台默认将约 60% 主区域分配给详情；结果/详情改为
+    可拖动水平 splitter，详情正文/CMake 建议改为可拖动垂直 splitter 并取消
+    CMake 固定最大高度。新增“专注详情/退出专注”可逆状态，专注时隐藏结果列表
+    和日志但保留选择、详情与建议。QtTest 覆盖 splitter 方向/非折叠尺寸、状态
+    往返、内容保持与控件可见性；Qt 5.15.2、Qt 6.4.3 均 4/4 CTest 通过。
+    1320×840 默认/专注截图完成视觉复核；Qt 6 Release 已重新部署，
+    `verify_delivery.py --require-self-contained`、Cocoa 启动均通过。
+
 ## 覆盖检查
 
 | 行为 | 任务 | 状态 |
@@ -245,13 +334,14 @@
 | REQ-005 | TASK-002,004,007,009 | 待执行 |
 | REQ-006 | TASK-002,008,009 | 待执行 |
 | REQ-007 | TASK-004,008,009 | 待执行 |
-| REQ-008 | TASK-006,007,009,011 | 执行中 |
+| REQ-008 | TASK-006,007,009,011,017 | 执行中 |
 | REQ-009 | TASK-001,010,012,013 | 执行中 |
+| REQ-010 | TASK-014,015,016 | 已完成 |
 
 ## 完成门槛
 
-- [ ] TASK-001–013 required 全部完成
-- [ ] AC-001.1–AC-008.6、AC-009.1–AC-009.7 与 PROP-001–007 有证据
+- [ ] TASK-001–017 required 全部完成
+- [ ] AC-001.1–AC-008.6、AC-009.1–AC-009.7、AC-010.1–AC-010.8 与 PROP-001–009 有证据
 - [ ] 8 类与多 target CMake 夹具通过
 - [ ] GUI thread/cancel/10k 日志/offscreen UI 测试通过
 - [ ] `build/bin/UnityBuildDoctor.app` 和 `dist/UnityBuildDoctor.app` 精确验证

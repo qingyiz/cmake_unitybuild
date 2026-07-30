@@ -13,6 +13,7 @@ namespace {
 QJsonObject issueJson(const doctor::domain::Issue& issue) {
     QJsonObject value{
         {QStringLiteral("id"), QString::fromStdString(issue.id)},
+        {QStringLiteral("ruleId"), QString::fromStdString(issue.ruleId)},
         {QStringLiteral("target"), QString::fromStdString(issue.target)},
         {QStringLiteral("category"), QString::fromStdString(issue.category)},
         {QStringLiteral("severity"), QString::fromStdString(issue.severity)},
@@ -50,6 +51,8 @@ QJsonObject sessionJson(const doctor::domain::ProjectSession& session) {
     }
     return QJsonObject{
         {QStringLiteral("schemaVersion"), 1},
+        {QStringLiteral("analysisMode"),
+         QString::fromStdString(session.analysisMode)},
         {QStringLiteral("sourceDirectory"),
          QString::fromStdString(session.sourceDirectory)},
         {QStringLiteral("workDirectory"),
@@ -79,14 +82,16 @@ QString markdownFrom(const QJsonObject& session) {
     QString output = QStringLiteral(
         "# Unity Build Doctor 报告\n\n"
         "- 项目：`%1`\n"
-        "- 状态：%2\n\n"
-        "## Target 结果\n\n"
-        "| Target | 类型 | 状态 | 问题数 |\n"
+        "- 状态：%2\n"
+        "- 分析模式：`%3`\n\n"
+        "## 检查结果\n\n"
+        "| Target / 检查项 | 类型 | 状态 | 问题数 |\n"
         "|---|---|---|---:|\n")
         .arg(session.value(QStringLiteral("sourceDirectory")).toString(),
              session.value(QStringLiteral("cancelled")).toBool()
                  ? QStringLiteral("已取消（部分结果）")
-                 : QStringLiteral("完成"));
+                 : QStringLiteral("完成"),
+             session.value(QStringLiteral("analysisMode")).toString());
     for (const auto& targetValue : session.value(QStringLiteral("targets")).toArray()) {
         const auto target = targetValue.toObject();
         output += QStringLiteral("| `%1` | %2 | %3 | %4 |\n")
@@ -104,8 +109,7 @@ QString markdownFrom(const QJsonObject& session) {
                 "\n### %1 · %2\n\n"
                 "%3\n\n"
                 "- 置信度：%4%\n"
-                "- 建议：%5\n"
-                "- 最小冲突文件：\n")
+                "- 建议：%5\n")
                 .arg(issue.value(QStringLiteral("id")).toString(),
                      issue.value(QStringLiteral("category")).toString(),
                      issue.value(QStringLiteral("summary")).toString(),
@@ -113,6 +117,12 @@ QString markdownFrom(const QJsonObject& session) {
                          issue.value(QStringLiteral("confidence")).toDouble() * 100.0,
                          'f', 0),
                      issue.value(QStringLiteral("suggestion")).toString());
+            const auto ruleId =
+                issue.value(QStringLiteral("ruleId")).toString();
+            if (!ruleId.isEmpty()) {
+                output += QStringLiteral("- 规则：`%1`\n").arg(ruleId);
+            }
+            output += QStringLiteral("- 涉及文件：\n");
             for (const auto& source : issue.value(QStringLiteral("sources")).toArray()) {
                 output += QStringLiteral("  - `%1`\n").arg(source.toString());
             }
