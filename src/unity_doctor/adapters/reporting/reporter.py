@@ -1,0 +1,191 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any, Dict, Iterable, List, Mapping, Optional
+
+from unity_doctor.domain.models import Session
+from unity_doctor.timeutil import utc_now
+
+
+class JsonSessionStore:
+    def __init__(self, report_root: Path) -> None:
+        self.report_root = report_root.resolve()
+
+    def save(self, session: Session) -> Path:
+        session.updated_at = utc_now()
+        directory = self.report_root / session.session_id
+        directory.mkdir(parents=True, exist_ok=True)
+        destination = directory / "session.json"
+        temporary = directory / ".session.json.tmp"
+        payload = json.dumps(
+            session.to_dict(), ensure_ascii=False, indent=2, sort_keys=True
+        )
+        with temporary.open("w", encoding="utf-8") as handle:
+            handle.write(payload)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(str(temporary), str(destination))
+        return destination
+
+    def load(self, session_path: Path) -> Session:
+        data = json.loads(session_path.read_text(encoding="utf-8"))
+        if int(data.get("schema_version", 0)) != 1:
+            raise ValueError("不支持的 session schema_version")
+        return Session.from_dict(data)
+
+
+class ArtifactReporter:
+    def __init__(self, report_root: Path) -> None:
+        self.report_root = report_root.resolve()
+
+    def render(self, session: Session) -> Dict[str, Path]:
+        directory = self.report_root / session.session_id
+        directory.mkdir(parents=True, exist_ok=True)
+        report_json = directory / "report.json"
+        report_markdown = directory / "report.md"
+        recommendations = directory / "recommendations.cmake"
+        data = _sanitize_report(session.to_dict(), session.request)
+        _atomic_text(
+            report_json,
+            json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True),
+        )
+        _atomic_text(report_markdown, _markdown(session))
+        _atomic_text(recommendations, _cmake(session))
+        return {
+            "json": report_json,
+            "markdown": report_markdown,
+            "cmake": recommendations,
+        }
+
+
+def _markdown(session: Session) -> str:
+    lines = [
+        "# Unity Build Doctor 报告",
+        "",
+        "- 会话：`{}`".format(session.session_id),
+        "- 状态：`{}`".format(session.status.value),
+        "- 创建：{}".format(session.created_at),
+        "- 更新：{}".format(session.updated_at),
+        "",
+    ]
+    if session.errors:
+        lines.extend(["## 错误", ""])
+        lines.extend("- {}".format(item) for item in session.errors)
+        lines.append("")
+    lines.extend(["## 冲突案件", ""])
+    if not session.cases:
+        lines.extend(["未发现可诊断的 Unity 编译冲突。", ""])
+    for case in session.cases:
+        lines.extend(
+            [
+                "### {} · {}".format(case.case_id, case.target),
+                "",
+                "- 状态：`{}`".format(case.status),
+                "- Unity 单元：`{}`".format(case.unity_source),
+                "- 最小集合：{}".format(
+                    ", ".join("`{}`".format(item) for item in case.minimal_sources)
+                    or "未获得"
+                ),
+                "- 顺序敏感：{}".format("是" if case.order_sensitive else "否"),
+            ]
+        )
+        if case.fingerprint:
+            lines.append(
+                "- 失败指纹：`{} / {} / {}`".format(
+                    case.fingerprint.compiler_family,
+                    case.fingerprint.category,
+                    case.fingerprint.symbol or "-",
+                )
+            )
+        if case.classification:
+            lines.extend(
+                [
+                    "- 分类：`{}`（置信度 {:.0%}）".format(
+                        case.classification.category, case.classification.confidence
+                    ),
+                    "- 解释：{}".format(case.classification.summary),
+                ]
+            )
+            if case.classification.evidence:
+                lines.append("- 证据：")
+                lines.extend(
+                    "  - `{}`".format(item) for item in case.classification.evidence
+                )
+        lines.extend(["", "建议：", ""])
+        for suggestion in case.suggestions:
+            availability = "可用" if suggestion.available else "当前 CMake 不可用"
+            lines.append(
+                "- **{}**（{}，风险 {}）：{}".format(
+                    suggestion.kind, availability, suggestion.risk, suggestion.summary
+                )
+            )
+            if suggestion.guidance:
+                lines.append("  {}".format(suggestion.guidance))
+        lines.append("")
+    if session.verification:
+        lines.extend(["## 验证", "", "```json"])
+        lines.append(json.dumps(session.verification, ensure_ascii=False, indent=2))
+        lines.extend(["```", ""])
+    return "\n".join(lines)
+
+
+def _cmake(session: Session) -> str:
+    lines = [
+        "# Generated by Unity Build Doctor.",
+        "# Review before copying. This file is never applied automatically.",
+        "",
+    ]
+    for case in session.cases:
+        lines.append("# {} · target {}".format(case.case_id, case.target))
+        for suggestion in case.suggestions:
+            lines.append(
+                "# {} | risk={} | minimum CMake={} | available={}".format(
+                    suggestion.kind,
+                    suggestion.risk,
+                    suggestion.minimum_cmake,
+                    "yes" if suggestion.available else "no",
+                )
+            )
+            if suggestion.available and suggestion.cmake:
+                lines.extend([suggestion.cmake, ""])
+            elif suggestion.guidance:
+                lines.append("# {}".format(suggestion.guidance))
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _sanitize_report(data: Dict[str, Any], request: Mapping[str, Any]) -> Dict[str, Any]:
+    replacements: List[tuple] = []
+    for label, key in (("<SOURCE>", "source"), ("<WORK>", "work_dir"), ("<REPORT>", "report_dir")):
+        value = request.get(key)
+        if isinstance(value, str) and value:
+            raw = str(Path(value).expanduser())
+            resolved = str(Path(value).resolve())
+            replacements.append((raw, label))
+            if resolved != raw:
+                replacements.append((resolved, label))
+
+    def visit(value: Any) -> Any:
+        if isinstance(value, str):
+            result = value
+            for prefix, label in replacements:
+                result = result.replace(prefix, label)
+            return result
+        if isinstance(value, list):
+            return [visit(item) for item in value]
+        if isinstance(value, dict):
+            return {key: visit(item) for key, item in value.items()}
+        return value
+
+    return visit(data)
+
+
+def _atomic_text(path: Path, text: str) -> None:
+    temporary = path.with_name("." + path.name + ".tmp")
+    with temporary.open("w", encoding="utf-8") as handle:
+        handle.write(text)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(str(temporary), str(path))

@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/unity-build-doctor/session-v1.json",
+  "title": "Unity Build Doctor Session",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "session_id",
+    "created_at",
+    "updated_at",
+    "status",
+    "request",
+    "environment",
+    "commands",
+    "cases",
+    "errors",
+    "verification"
+  ],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string" },
+    "updated_at": { "type": "string" },
+    "status": { "type": "string" },
+    "request": { "type": "object" },
+    "environment": { "type": "object" },
+    "commands": { "type": "array" },
+    "cases": { "type": "array" },
+    "errors": { "type": "array", "items": { "type": "string" } },
+    "verification": { "type": "object" }
+  },
+  "additionalProperties": false
+}

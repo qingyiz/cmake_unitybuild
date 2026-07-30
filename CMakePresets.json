@@ -1,0 +1,106 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": true,
+                "UNITY_DOCTOR_BUILD_TESTS": true
+            }
+        },
+        {
+            "name": "qt5-debug",
+            "displayName": "Qt 5.15 · Debug",
+            "description": "Build with Qt 5 from UNITY_DOCTOR_QT5_ROOT.",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "$env{UNITY_DOCTOR_QT5_ROOT}",
+                "UNITY_DOCTOR_QT_MAJOR": "5",
+                "UNITY_DOCTOR_QT_ROOT": "$env{UNITY_DOCTOR_QT5_ROOT}"
+            }
+        },
+        {
+            "name": "qt6-debug",
+            "displayName": "Qt 6.4 · Debug",
+            "description": "Build with Qt 6 from UNITY_DOCTOR_QT6_ROOT.",
+            "inherits": "base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_PREFIX_PATH": "$env{UNITY_DOCTOR_QT6_ROOT}",
+                "UNITY_DOCTOR_QT_MAJOR": "6",
+                "UNITY_DOCTOR_QT_ROOT": "$env{UNITY_DOCTOR_QT6_ROOT}"
+            }
+        },
+        {
+            "name": "qt5-release",
+            "displayName": "Qt 5.15 · Release",
+            "inherits": "qt5-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "UNITY_DOCTOR_BUILD_TESTS": false
+            }
+        },
+        {
+            "name": "qt6-release",
+            "displayName": "Qt 6.4 · Release",
+            "inherits": "qt6-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "UNITY_DOCTOR_BUILD_TESTS": false
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "qt5-debug",
+            "configurePreset": "qt5-debug",
+            "jobs": 8
+        },
+        {
+            "name": "qt6-debug",
+            "configurePreset": "qt6-debug",
+            "jobs": 8
+        },
+        {
+            "name": "qt5-release",
+            "configurePreset": "qt5-release",
+            "jobs": 8
+        },
+        {
+            "name": "qt6-release",
+            "configurePreset": "qt6-release",
+            "jobs": 8
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "qt5-debug",
+            "configurePreset": "qt5-debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
+        },
+        {
+            "name": "qt6-debug",
+            "configurePreset": "qt6-debug",
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error"
+            }
+        }
+    ]
+}

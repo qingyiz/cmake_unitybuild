@@ -1,0 +1,18 @@
+{
+  "schema_version": 3,
+  "name": "unity-build-doctor-gui",
+  "title": "unity-build-doctor-gui",
+  "type": "feature",
+  "workflow": "design-first",
+  "detail_level": "high",
+  "review_mode": "continuous",
+  "phase": "execution",
+  "status": "active",
+  "approvals": {
+    "design": "2026-07-30T13:57:05+00:00",
+    "requirements": "2026-07-30T13:57:16+00:00",
+    "tasks": "2026-07-30T13:58:00+00:00"
+  },
+  "created_at": "2026-07-29T14:54:38+00:00",
+  "updated_at": "2026-07-30T13:58:00+00:00"
+}

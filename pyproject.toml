@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unity-build-doctor"
+version = "0.1.0"
+description = "只读诊断 CMake Unity Build 冲突的命令行工具"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Unity Build Doctor Contributors" }]
+dependencies = []
+
+[project.scripts]
+unity-build-doctor = "unity_doctor.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
