@@ -89,6 +89,10 @@ ctest --preset qt5-debug
 
 `out/build/qt5-debug/bin/UnityBuildDoctor.app`
 
+在 macOS 上，`cmake --build` 会自动使用当前 Qt 5 Kit 的 `macdeployqt`
+收集 Frameworks 与 `cocoa` plugin，并完成本地 ad-hoc 签名。这个 build-tree
+中的 `.app` 已是可直接复制和启动的完整版，无需再执行部署脚本。
+
 ### Qt 6
 
 ```bash
@@ -101,6 +105,9 @@ ctest --preset qt6-debug
 应用位于：
 
 `out/build/qt6-debug/bin/UnityBuildDoctor.app`
+
+Qt 6 的 build-tree `.app` 同样会在普通构建结束时自动完成运行时收集和
+ad-hoc 签名。
 
 Release 构建可分别使用 `qt5-release` 和 `qt6-release`。
 
@@ -120,7 +127,8 @@ Release 构建可分别使用 `qt5-release` 和 `qt6-release`。
 
 ## macOS 部署
 
-生成自包含 macOS 应用：
+普通构建已经直接生成自包含 `.app`。如果还需要把 Release 应用安装到独立的
+`dist` 交付目录，可执行：
 
 ```bash
 ./scripts/deploy_macos.sh /path/to/Qt/6.x/macos
@@ -134,8 +142,10 @@ Release 构建可分别使用 `qt5-release` 和 `qt6-release`。
 
 - 已验证：同一份源码分别使用 macOS arm64 Qt 5.15.2、Qt 6.4.3 构建并通过完整测试；
   CMake 3.27.1、Ninja、Apple Clang 17。
-- 开发与部署 `.app` 均包含原生多尺寸 `UnityBuildDoctor.icns` 应用图标。
-- 部署包包含 Qt Frameworks 与 `cocoa` platform plugin，不依赖 Qt 安装绝对路径。
+- build-tree 与 `dist` 中的 `.app` 均包含原生多尺寸
+  `UnityBuildDoctor.icns` 应用图标。
+- build-tree 与 `dist` 中的 `.app` 均包含 Qt Frameworks 与 `cocoa`
+  platform plugin，不依赖 Qt 安装绝对路径。
 - 当前应用使用本地 ad-hoc 签名；未进行 Developer ID 签名、公证或 DMG 打包。
 - Windows、Linux、MSVC、GCC 和大型 Qt/AUTOGEN 工程仍需补充原生验证。
 - 当前版本不负责把 qmake 工程迁移到 CMake，也不自动应用修复。

@@ -159,10 +159,11 @@
 - AC-009.1：开发构建应生成 `build/bin/UnityBuildDoctor.app`。
 - AC-009.2：部署应生成 `dist/UnityBuildDoctor.app`，包含 Qt frameworks 和 cocoa platform plugin。
 - AC-009.3：部署应用应在不依赖 Qt 安装绝对路径时启动并显示主窗口。
-- AC-009.4：本阶段不要求签名、公证、dmg/pkg，但应在文档明确。
+- AC-009.4：本阶段仅要求无需身份凭据的本地 ad-hoc 签名，不要求 Developer ID 签名、公证或 dmg/pkg，并应在文档明确。
 - AC-009.5：仓库应提供可移植的 `CMakePresets.json`，至少包含 Qt 5/Qt 6 的 Debug configure、build 和 test presets；用户本机绝对 Qt 路径仅允许放在环境变量或被忽略的 `CMakeUserPresets.json`。
 - AC-009.6：Qt 5.15.2 与 Qt 6.4.3 presets 应从相同源码分别生成 `.app` 并通过同一组 CTest；配置时应拒绝与 preset 请求主版本不一致的 Qt。
 - AC-009.7：Qt 5/Qt 6 开发 `.app` 与 `dist/UnityBuildDoctor.app` 的 `Info.plist` 应声明非空 `CFBundleIconFile`，且对应 `.icns` 应位于 `Contents/Resources` 并包含 16–1024 px 的 macOS 图标表示。
+- AC-009.8：在 macOS 上执行普通 `cmake --build` 后，build tree 中的 `UnityBuildDoctor.app` 应已包含当前 Qt Kit 的 frameworks、cocoa platform plugin 并通过本地 ad-hoc 签名校验；用户不得需要再运行部署脚本才能复制并启动该 `.app`。
 
 ### REQ-010：无需构建的源码快速扫描
 
@@ -188,7 +189,7 @@
 | NFR-003 | 可靠性 | 每个 target 终态唯一；取消后不启动新 target | 状态机测试 |
 | NFR-004 | 诊断质量 | 8 类夹具定位 100%，分类≥90% | C++ e2e |
 | NFR-005 | 容量 | 500 targets、10,000 issues 的 model 操作不复制源码全文 | model benchmark |
-| NFR-006 | 可部署 | deployed `.app` 无开发机 Qt 绝对依赖且包含 cocoa plugin | delivery check |
+| NFR-006 | 可部署 | build-tree 与 deployed `.app` 均无开发机 Qt 绝对依赖且包含 cocoa plugin | delivery check |
 | NFR-007 | 构建兼容 | Qt 5.15 与 Qt 6.4 共用源码和 target 图，不使用版本分支复制页面/后端 | dual-preset build + CTest |
 | NFR-008 | 扫描边界 | 源码模式只做进程内只读词法扫描；单文件读取上限 2 MiB，取消检查至少每文件一次 | source-scan fixtures + fake invalid CMake |
 
@@ -218,6 +219,7 @@
 | ANA-007 | 误报 | REQ-010 | 无 configure 时不能可靠知道 target/Unity group，跨文件同名可能属于不同 target | 结果标记为项目级风险候选，保留置信度并建议使用构建模式验证 |
 | ANA-008 | 范围 | REQ-010 | 完整 C++ AST 在没有编译参数时不可靠，首版规则只要求三类明确词法模式 | 使用注释/字符串感知和作用域深度的轻量扫描，不宣称语义完备 |
 | ANA-009 | 体验 | REQ-008 | 固定左右分栏与固定高度 CMake 建议会同时压缩多问题详情和代码建议 | 使用水平/垂直 splitter，并提供一键可逆的详情专注状态 |
+| ANA-010 | 交付 | REQ-009 | 用户把 build tree 中 `.app` 视为可直接复制运行的完整应用；仅在独立 `dist` 步骤收集 Qt 依赖不满足该预期 | macOS app target 的普通 build 在链接后自动部署当前 Qt Kit 并签名，`dist` 保留为安装/发布目录 |
 
 ## 需求追踪
 
@@ -231,7 +233,7 @@
 | REQ-006 | AC-006.1–006.5 | clipboard/export tests |
 | REQ-007 | AC-007.1–007.5 | snapshot/session/cache tests |
 | REQ-008 | AC-008.1–008.7 | offscreen UI/model tests + macOS 原生截图 |
-| REQ-009 | AC-009.1–009.7 | dual-preset build/CTest + `.app` icon/delivery/smoke |
+| REQ-009 | AC-009.1–009.8 | dual-preset build/CTest + build-tree/deployed `.app` icon/delivery/signature/smoke |
 | REQ-010 | AC-010.1–010.8 | domain fixtures + source directory integration + offscreen UI |
 
 ## 未决问题

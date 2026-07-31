@@ -24,6 +24,7 @@
 | 12 | TASK-015 |
 | 13 | TASK-016 |
 | 14 | TASK-017 |
+| 15 | TASK-018 |
 
 ## 任务列表
 
@@ -323,6 +324,32 @@
     1320×840 默认/专注截图完成视觉复核；Qt 6 Release 已重新部署，
     `verify_delivery.py --require-self-contained`、Cocoa 启动均通过。
 
+- [x] TASK-018：让普通 macOS build 生成自包含应用
+  - 类型：required
+  - 需求：REQ-009（AC-009.8）、NFR-006
+  - 设计：DEC-009；BUILD-003,005；PROP-011
+  - 单一变更原因：把自包含 Qt 运行时收集从额外部署脚本前移到 `UnityBuildDoctor` target 的普通构建结果。
+  - 模块/构建单元：`UnityBuildDoctor`
+  - 架构约束：ARCH-005 / BUILD-003,005
+  - 依赖变化：不新增 C++ include/link 边；macOS app target 新增对当前 Qt Kit `macdeployqt` 与系统 `codesign` 的构建后工具依赖
+  - 平台/交付物：macOS arm64；`build/bin/UnityBuildDoctor.app`、`out/build/qt5-debug/bin/UnityBuildDoctor.app`、`out/build/qt6-debug/bin/UnityBuildDoctor.app`
+  - 依赖：TASK-012, TASK-013
+  - 修改范围：`cpp/app/CMakeLists.txt`、可复用 macOS 部署 CMake 规则、README、Spec 与交付验证；不修改 C++ 业务/UI/分析逻辑
+  - 产出：普通 `cmake --build` 后可直接复制运行的 Qt 5/Qt 6 完整 `.app`
+  - 验证：Qt 5/Qt 6 全新 configure/build；`verify_delivery.py --require-self-contained`；bundle tree、`otool -L`、deep/strict 签名与 Cocoa 启动；完整 CTest
+  - 实施记录：已完成。新增单一职责的
+    `cmake/DeployMacOSBundle.cmake`，由 `UnityBuildDoctor` target 在
+    macOS `POST_BUILD` 中定位当前 configure 所选 Qt Kit 的
+    `macdeployqt`，就地收集 Frameworks/plugins，再执行 ad-hoc 签名及
+    deep/strict 校验；未新增 C++ include/link 依赖。使用全新 Qt 5.15.2
+    与 Qt 6.4.3 build tree 以及标准 `qt5-debug`/`qt6-debug` presets
+    分别构建成功，标准输出 `.app` 为 25 MiB/91 MiB，均包含
+    `Contents/Frameworks` 与
+    `Contents/PlugIns/platforms/libqcocoa.dylib`，动态依赖使用
+    `@rpath`，`verify_delivery.py --require-self-contained` 和
+    `codesign --verify --deep --strict` 通过。两套 CTest 均 4/4 通过，
+    两个 build-tree 应用均使用 Cocoa 启动成功。
+
 ## 覆盖检查
 
 | 行为 | 任务 | 状态 |
@@ -335,15 +362,15 @@
 | REQ-006 | TASK-002,008,009 | 待执行 |
 | REQ-007 | TASK-004,008,009 | 待执行 |
 | REQ-008 | TASK-006,007,009,011,017 | 执行中 |
-| REQ-009 | TASK-001,010,012,013 | 执行中 |
+| REQ-009 | TASK-001,010,012,013,018 | 执行中 |
 | REQ-010 | TASK-014,015,016 | 已完成 |
 
 ## 完成门槛
 
-- [ ] TASK-001–017 required 全部完成
-- [ ] AC-001.1–AC-008.6、AC-009.1–AC-009.7、AC-010.1–AC-010.8 与 PROP-001–009 有证据
+- [ ] TASK-001–018 required 全部完成
+- [ ] AC-001.1–AC-008.7、AC-009.1–AC-009.8、AC-010.1–AC-010.8 与 PROP-001–011 有证据
 - [ ] 8 类与多 target CMake 夹具通过
 - [ ] GUI thread/cancel/10k 日志/offscreen UI 测试通过
-- [ ] `build/bin/UnityBuildDoctor.app` 和 `dist/UnityBuildDoctor.app` 精确验证
-- [ ] deployed app 不依赖 Qt 安装绝对路径并包含 cocoa plugin
+- [ ] `build/bin/UnityBuildDoctor.app`、两个 preset build-tree `.app` 和 `dist/UnityBuildDoctor.app` 精确验证
+- [ ] build-tree 与 deployed app 均不依赖 Qt 安装绝对路径并包含 cocoa plugin
 - [ ] Windows/Linux、签名、公证、DMG 明确未承诺

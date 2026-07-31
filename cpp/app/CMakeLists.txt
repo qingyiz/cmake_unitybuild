@@ -22,4 +22,7 @@ set_target_properties(UnityBuildDoctor PROPERTIES
     MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
 )
 
+include("${PROJECT_SOURCE_DIR}/cmake/DeployMacOSBundle.cmake")
+unity_doctor_deploy_macos_bundle(UnityBuildDoctor)
+
 install(TARGETS UnityBuildDoctor BUNDLE DESTINATION .)

@@ -15,7 +15,7 @@
 - 目标：交付原生 Qt/C++ 桌面应用，让用户选择任意 CMake C/C++ 项目后，在界面中完成全项目 target 发现、普通/Unity 双构建、冲突最小化、问题分类与修复建议查看。
 - 覆盖行为：REQ-001–REQ-010。
 - 核心方案：Qt 5.15/Qt 6.4 Widgets 共源码原生 `.app`；构建验证由 QProcess/CMake File API/compile database 驱动，源码快速扫描由进程内 C++17 词法规则与只读文件适配器驱动，两种模式共用后台 worker、session 和结果工作台。
-- 交付物：`build/bin/UnityBuildDoctor.app` 开发应用束；`dist/UnityBuildDoctor.app` 自包含部署应用束。
+- 交付物：`build/bin/UnityBuildDoctor.app` 与 Qt 5/Qt 6 preset build tree 中的自包含应用束；`dist/UnityBuildDoctor.app` 安装/发布目录中的自包含应用束。
 - 既有 Python CLI 保留为历史原型和测试思路参考，不是 GUI 的运行时依赖，也不由 GUI 调用。
 
 ## 代码库调查
@@ -32,6 +32,7 @@
 | 主机 | Apple Clang 17 target triple | macOS arm64 | required 原生交付先锁定 macOS arm64 |
 | 应用图标 | 开发包与部署包 `CFBundleIconFile=""`，Resources 无 `.icns` | 当前 bundle 没有应用图标 | `UnityBuildDoctor` target 必须拥有并复制原生图标资源 |
 | 分析模式 | `ProjectConfig` 无 mode；`AnalysisWorker` 始终构造 `CMakeBackend`；设置页验证始终要求 CMakeLists/CMake executable | 当前只能构建后分析 | 新增 mode、源码扫描 port/adapter 和条件化 UI 校验 |
+| build-tree 交付 | `du -sh out/build/qt6-debug/bin/UnityBuildDoctor.app` 为约 3.3 MiB，且无 `Contents/Frameworks`/`Contents/PlugIns`；`dist/UnityBuildDoctor.app` 为约 92 MiB 并包含上述目录 | 现有普通 build 只生成依赖开发机 Qt 的小型 bundle，完整版仅由额外部署脚本生成 | 将对应 Qt Kit 的 `macdeployqt` 与 ad-hoc 签名接入 app target 的 macOS `POST_BUILD` |
 
 ### 工具链与兼容性基线
 
@@ -130,6 +131,14 @@
 - 代价：源码模式不知道真实 target 和 Unity group，跨文件冲突只能标记为项目级候选；首版不承诺完整 C++ 语义。
 - 被否决方案：UI 中直接正则扫描；引入 libclang，因为无 compile database 时仍缺少可靠编译上下文且增加部署依赖。
 
+### DEC-009：macOS 普通 build 直接产出自包含应用
+
+- 上下文与需求：REQ-009（AC-009.8）、NFR-006。
+- 决策：`UnityBuildDoctor` 在 macOS 链接完成后，使用与本次 configure 所选 Qt 主版本及根目录一致的 `macdeployqt` 对 `$<TARGET_BUNDLE_DIR:UnityBuildDoctor>` 就地收集 frameworks/plugins，再使用 `/usr/bin/codesign --sign - --deep --force` 做本地 ad-hoc 签名并严格校验；该过程属于 app target 构建，不要求用户执行 `cmake --install` 或仓库脚本。
+- 理由：用户需要从 build tree 直接取得可复制、可启动的完整版 `.app`；部署工具必须来自当前 Qt Kit，避免 Qt 5/Qt 6 混装。
+- 代价：首次链接和应用重链接会增加部署与签名耗时，build tree 体积由约 3 MiB 增至包含 Qt 运行时的几十 MiB；非 macOS 构建不执行该步骤。
+- 被否决方案：只保留 `scripts/deploy_macos.sh` 生成 `dist`，因为它无法满足普通 build 直接交付；使用 Qt 6 专属部署 API，因为会破坏 Qt 5.15 共源码支持。
+
 ## 总体架构
 
 ```mermaid
@@ -218,12 +227,12 @@ flowchart LR
 
 ### BUILD-003：输出契约
 
-- development：`build/bin/UnityBuildDoctor.app`。
-- preset development：`out/build/qt5-debug/bin/UnityBuildDoctor.app` 与 `out/build/qt6-debug/bin/UnityBuildDoctor.app`。
+- development：`build/bin/UnityBuildDoctor.app`；macOS 上普通 build 完成时已自包含并通过 ad-hoc 签名。
+- preset development：`out/build/qt5-debug/bin/UnityBuildDoctor.app` 与 `out/build/qt6-debug/bin/UnityBuildDoctor.app`；两者分别由对应 Qt 5/Qt 6 Kit 的 `macdeployqt` 在 target `POST_BUILD` 中就地部署。
 - bundle resource：各开发与部署 `.app` 的 `Contents/Resources/UnityBuildDoctor.icns`，并由 `CFBundleIconFile` 引用。
 - test：CTest targets 位于 build tree，不进入应用束。
 - install：`stage/UnityBuildDoctor.app`。
-- deployed：`dist/UnityBuildDoctor.app`，由当前 preset 对应 Qt 的 `macdeployqt` 收集 frameworks/plugins。
+- deployed：`dist/UnityBuildDoctor.app`，部署脚本仍对安装树执行对应 Qt Kit 的 `macdeployqt` 与 ad-hoc 签名，作为独立交付目录。
 
 ### BUILD-004：目标项目隔离
 
@@ -240,7 +249,7 @@ flowchart LR
 
 | 平台/架构 | 开发构建物 | 安装/部署产物 | 发布包 | 运行时依赖 | 原生验证 |
 |---|---|---|---|---|---|
-| macOS arm64 | `build/bin/UnityBuildDoctor.app` | `dist/UnityBuildDoctor.app` | 本阶段不要求 dmg/pkg | QtCore/Gui/Widgets frameworks、cocoa plugin | bundle 结构、`otool -L`、offscreen smoke、Finder/open 启动 |
+| macOS arm64 | `build/bin/UnityBuildDoctor.app`（普通 build 后自包含） | `dist/UnityBuildDoctor.app` | 本阶段不要求 dmg/pkg | 两类 `.app` 均内含 QtCore/Gui/Widgets frameworks、cocoa plugin | bundle 结构、`otool -L`、`codesign --verify --deep --strict`、offscreen smoke、Finder/open 启动 |
 | Windows/Linux | 不在 required 范围 | 未定义 | 未定义 | 未验证 | optional 后续 |
 
 ### macOS 应用束约束
@@ -248,8 +257,8 @@ flowchart LR
 - `Contents/MacOS/UnityBuildDoctor`。
 - `Contents/Info.plist` 包含标识 `com.unitybuilddoctor.app`、显示名、版本与非空 `CFBundleIconFile`。
 - `Contents/Resources/UnityBuildDoctor.icns` 包含 macOS 从 16 px 到 1024 px 所需的图标表示。
-- `Contents/Frameworks/` 与 `Contents/PlugIns/platforms/libqcocoa.dylib` 由部署阶段验证。
-- 当前不要求签名、公证或 DMG。
+- `Contents/Frameworks/` 与 `Contents/PlugIns/platforms/libqcocoa.dylib` 在普通 build 完成后即存在，并对 build tree 与 `dist` 分别验证。
+- build tree 与 `dist` 使用无需身份凭据的本地 ad-hoc 签名；当前不要求 Developer ID 签名、公证或 DMG。
 
 ## 主要界面
 
@@ -441,6 +450,11 @@ sequenceDiagram
 - 属性：对于任意已展示的 target/检查项，进入再退出详情专注状态后，结果列表、日志、当前详情与 CMake 建议仍可见且内容不变；垂直 splitter 两侧始终可由用户调整到非零可见尺寸。
 - 验证：QtTest 点击状态往返、widget 可见性、详情内容和 splitter 子控件测试。
 
+### PROP-011：build-tree 应用自包含
+- 来源：REQ-009、AC-009.8、NFR-006。
+- 属性：对于任意受支持的 Qt 5.15.2 或 Qt 6.4.3 macOS configure，普通 `cmake --build --target UnityBuildDoctor` 成功后，目标 `.app` 包含 `Contents/Frameworks` 与 `Contents/PlugIns/platforms/libqcocoa.dylib`，动态依赖不含所选 Qt 安装根绝对路径，并通过 deep/strict 签名校验。
+- 验证：分别使用全新 Qt 5/Qt 6 build tree 执行 `verify_delivery.py --require-self-contained`、`otool -L`、`codesign --verify --deep --strict` 与 Cocoa 启动。
+
 ## 测试策略
 
 - domain 使用纯 C++ 单元/性质测试。
@@ -462,7 +476,7 @@ sequenceDiagram
 | REQ-006 | Suggestion/Exporter | ARCH-001,003,004 | DEC-006 | PROP-006 | export test |
 | REQ-007 | SessionStore | ARCH-003,007 | DEC-004,006 | PROP-005,006 | recovery test |
 | REQ-008 | all UI | ARCH-004,006 | DEC-003,005 | PROP-004,010 | offscreen UI test |
-| REQ-009 | deployment | BUILD-003,005 | DEC-001,007 | PROP-005 | bundle/icon/smoke |
+| REQ-009 | app target/deployment | BUILD-003,005 | DEC-001,007,009 | PROP-005,011 | dual-kit build-tree/deployed bundle/icon/signature/smoke |
 | REQ-010 | SourceScanBackend/domain/UI mode | ARCH-001–004,006,007 / BUILD-002,004 | DEC-008 | PROP-004,005,008,009 | domain fixture + no-CMake integration + QtTest |
 
 ## 风险与未决问题
